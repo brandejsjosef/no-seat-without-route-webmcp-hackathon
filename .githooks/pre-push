@@ -1,0 +1,37 @@
+#!/bin/sh
+#
+# Both gates before anything leaves this machine.
+#
+# The risk is not that bad code reaches GitHub. It is that bad code reaches the
+# live URL a judge opens. Render's build command is `npm run verify`, which does
+# NOT include the browser suite - and the browser suite is the only gate that
+# ever caught the hardcoded-label defect, where all three operator labels read
+# "East Lift L2" for ever while all three endpoints followed the selector. The
+# Node gate passed that mutation 479/479.
+#
+# So the browser suite ran only when somebody remembered. This is the place it
+# stops depending on memory.
+#
+# Escape hatch, deliberately explicit: git push --no-verify
+#
+# Enable once per clone (hooks are not shared by git):
+#   git config core.hooksPath .githooks
+
+set -e
+
+echo ""
+echo "pre-push: npm run verify:all (Node gate + browser suite)"
+echo "          skip deliberately with: git push --no-verify"
+echo ""
+
+if ! npm run verify:all; then
+  echo ""
+  echo "pre-push: BLOCKED. The gates are red, so nothing is going out."
+  echo "          Fix them, or push with --no-verify and say so out loud."
+  echo ""
+  exit 1
+fi
+
+echo ""
+echo "pre-push: both gates green."
+echo ""

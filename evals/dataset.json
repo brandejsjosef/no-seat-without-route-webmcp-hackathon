@@ -1,0 +1,209 @@
+{
+  "name": "no-seat-without-route",
+  "description": "Tool-selection cases for the visitor booking surface. Each case names the page state it applies to, because the registered tool list changes with that state. The shape follows Chrome's published WebMCP evals format (messages plus expectedCall); the contract checker in evals/contract.mjs runs offline and needs no model.",
+  "cases": [
+    {
+      "name": "compare before acting",
+      "phase": "READY",
+      "availableTools": [
+        "get_event_access_state",
+        "get_access_bundle_status",
+        "list_access_options",
+        "check_access_route",
+        "find_access_bundle"
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": "My chair is 90 cm wide. Which entrances can I actually use tonight?"
+        }
+      ],
+      "expectedCall": [
+        {
+          "functionName": "list_access_options",
+          "arguments": {
+            "wheelchairWidthCm": 90
+          }
+        }
+      ],
+      "note": "A width question is a comparison, not a booking. The read tool answers it without creating a plan."
+    },
+    {
+      "name": "one named route",
+      "phase": "READY",
+      "availableTools": [
+        "get_event_access_state",
+        "get_access_bundle_status",
+        "list_access_options",
+        "check_access_route",
+        "find_access_bundle"
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": "Does the East Entrance route work if I need step-free access the whole way?"
+        }
+      ],
+      "expectedCall": [
+        {
+          "functionName": "check_access_route",
+          "arguments": {
+            "routeId": "east-lift-route",
+            "stepFree": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "full requirements become a search",
+      "phase": "READY",
+      "availableTools": [
+        "get_event_access_state",
+        "get_access_bundle_status",
+        "list_access_options",
+        "check_access_route",
+        "find_access_bundle"
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": "Find a step-free plan for me and one companion. My chair is 72 cm wide, keep the route under 80 metres, use a quieter entrance and arrange someone to meet me."
+        }
+      ],
+      "expectedCall": [
+        {
+          "functionName": "find_access_bundle",
+          "arguments": {
+            "wheelchairWidthCm": 72,
+            "maxDistanceM": 80,
+            "stepFree": true,
+            "companionCount": 1,
+            "entranceAssistance": true,
+            "lowStimulus": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "prepare for review",
+      "phase": "PLAN_READY",
+      "availableTools": [
+        "get_event_access_state",
+        "get_access_bundle_status",
+        "list_access_options",
+        "check_access_route",
+        "stage_access_bundle",
+        "clear_access_plan"
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": "That option looks right. Get it ready so I can look it over."
+        }
+      ],
+      "expectedCall": [
+        {
+          "functionName": "stage_access_bundle",
+          "arguments": {}
+        }
+      ],
+      "note": "Staging is preparation only. There is deliberately no tool that confirms a booking, in any state."
+    },
+    {
+      "name": "explain rather than retry",
+      "phase": "PLAN_STALE",
+      "availableTools": [
+        "get_event_access_state",
+        "get_access_bundle_status",
+        "list_access_options",
+        "check_access_route",
+        "explain_access_refusal",
+        "replan_access_bundle"
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": "It said no when I pressed confirm. What happened, and did anything get booked?"
+        }
+      ],
+      "expectedCall": [
+        {
+          "functionName": "explain_access_refusal",
+          "arguments": {}
+        }
+      ],
+      "note": "The failure path should be read first. Repeating the refused call cannot succeed while the venue revision has moved on."
+    },
+    {
+      "name": "replace a refused plan",
+      "phase": "PLAN_STALE",
+      "availableTools": [
+        "get_event_access_state",
+        "get_access_bundle_status",
+        "list_access_options",
+        "check_access_route",
+        "explain_access_refusal",
+        "replan_access_bundle"
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": "The lift is broken. Find me another way in with the same requirements."
+        }
+      ],
+      "expectedCall": [
+        {
+          "functionName": "replan_access_bundle",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "name": "start over on impossible requirements",
+      "phase": "NO_ALTERNATIVE",
+      "availableTools": [
+        "get_event_access_state",
+        "get_access_bundle_status",
+        "list_access_options",
+        "check_access_route",
+        "explain_access_refusal",
+        "clear_access_plan"
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": "Nothing works. Let me change what I asked for."
+        }
+      ],
+      "expectedCall": [
+        {
+          "functionName": "clear_access_plan",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "name": "a confirmed booking is read-only",
+      "phase": "CONFIRMED",
+      "availableTools": [
+        "get_event_access_state",
+        "get_access_bundle_status",
+        "list_access_options",
+        "check_access_route"
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": "Change my booking to the garden entrance instead."
+        }
+      ],
+      "expectedCall": [
+        {
+          "functionName": "get_access_bundle_status",
+          "arguments": {}
+        }
+      ],
+      "note": "No tool can alter a confirmed booking. The correct behaviour is to read the booking and tell the visitor to contact the venue."
+    }
+  ]
+}

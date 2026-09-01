@@ -1,0 +1,44 @@
+# Deploy target for judging.
+#
+# The venue store lives in process memory, so the instance must stay warm: a
+# host that sleeps would wipe the venue between a judge preparing a plan and
+# confirming it, which is exactly the state this demo is about. Render's `free`
+# instance stops after 15 minutes idle and takes about a minute to answer again,
+# so a paid instance is used here.
+#
+# Instance identifiers are spec-shaped, not names: `0.5c-512mb` is the $7/month
+# tier (0.5 CPU, 512 MB). The older name `starter` is no longer in the blueprint
+# specification. Field names drift too - `autoDeploy` was replaced by
+# `autoDeployTrigger`. Both checked against render.com/docs/blueprint-spec on
+# 30 August 2026; re-check before trusting this file again.
+services:
+  - type: web
+    # Matches the deployed service, whose URL is
+    # https://no-seat-without-a-route.onrender.com
+    name: no-seat-without-a-route
+    runtime: node
+    plan: 0.5c-512mb
+    region: frankfurt
+    buildCommand: npm run verify
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: "off"
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Render terminates TLS in front of the app, so the socket address is the
+      # edge for every visitor. Without a trusted client identity the session
+      # limiter counts all of them as one caller, and 41 requests lock the site.
+      #
+      # This trusts CF-Connecting-IP and nothing else. On a public Render web
+      # service Cloudflare writes that header and overwrites whatever the caller
+      # sent, which is what makes it an identity rather than a suggestion.
+      # X-Forwarded-For is deliberately NOT trusted: its leftmost element is
+      # caller-controlled, and trusting it let one caller mint a fresh rate-limit
+      # bucket per request - measured as 60 accepted out of 60.
+      #
+      # Setting this on a host where Cloudflare does not write the header is not
+      # dangerous, only useless: an unwritten or malformed value falls back to
+      # the socket address.
+      - key: NSWR_TRUST_CF_CONNECTING_IP
+        value: "1"

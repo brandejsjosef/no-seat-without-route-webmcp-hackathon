@@ -1,0 +1,20 @@
+{
+  "name": "no-seat-without-route",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A WebMCP demo that commits an accessible venue route, seats and assistance as one versioned bundle.",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test",
+    "evals": "node evals/contract.mjs",
+    "verify": "npm run check && npm run evals && npm test",
+    "check": "node --check server.mjs && node --check lib/domain.mjs && node --check public/app.js && node --check public/operator.js && node --check public/tools.mjs && node --check public/views.mjs",
+    "test:browser": "node e2e/browser.mjs",
+    "verify:all": "npm run verify && npm run test:browser"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#10231f">
+    <title>Venue Operations · No Seat Without a Route</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/operator.js"></script>
+  </head>
+  <body class="operator-body">
+    <a class="skip-link" href="#operator-main">Skip to operations</a>
+    <header class="operator-header">
+      <div class="operator-brand">
+        <span class="wordmark-mark" aria-hidden="true">RH</span>
+        <div><strong>RIVERSIDE HALL</strong><span>Venue operations</span></div>
+      </div>
+      <div class="operator-header-actions">
+        <div class="live-status" id="operator-live-status">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span id="operator-live-text">Venue data live</span>
+        </div>
+        <div class="webmcp-status" id="operator-webmcp-status" title="WebMCP connection status">
+          <span aria-hidden="true">◇</span>
+          <span id="operator-webmcp-text">Checking WebMCP…</span>
+        </div>
+        <a class="operator-back" id="visitor-link" href="/" target="_blank" rel="noopener">Open visitor booking ↗</a>
+      </div>
+    </header>
+
+    <main id="operator-main" class="operator-main" tabindex="-1">
+      <p class="venue-notice" id="operator-venue-notice" hidden></p>
+      <section class="operator-title">
+        <div>
+          <p class="eyebrow">LIVE FACILITIES</p>
+          <h1>Route operations</h1>
+          <p>This panel represents the venue’s authoritative operational state. The visitor view refreshes it within one second.</p>
+        </div>
+        <div class="revision-tile">
+          <span>Resource revision</span>
+          <strong id="operator-version">—</strong>
+        </div>
+      </section>
+
+      <section class="operator-grid" aria-labelledby="facilities-heading">
+        <div>
+          <h2 id="facilities-heading">Facilities</h2>
+          <div class="facility-list" id="facility-list"></div>
+        </div>
+        <aside class="race-card" aria-labelledby="race-heading">
+          <p class="eyebrow">DEMO CONTROL</p>
+          <h2 id="race-heading">Inject a review-to-commit race</h2>
+          <p id="race-intro">Arm a fault on East Lift L2. The venue will report it after the visitor starts confirming the old plan but before the server commits it.</p>
+          <button class="button button-warning button-wide" type="button" id="arm-outage-button">Arm East Lift fault</button>
+          <div class="armed-state" id="armed-state" hidden role="status">
+            <span class="pulse-dot" aria-hidden="true"></span>
+            Fault armed for next confirmation on <span id="armed-facility">East Lift L2</span>
+          </div>
+          <hr>
+          <div class="facility-choice">
+            <label for="facility-select">Lift these controls act on</label>
+            <!-- autocomplete="off" so a reload really does start on the default
+                 lift. Browsers restore a select's value across a reload, and the
+                 blurb and the three buttons are static markup until the first
+                 render answers: without this, a reload with Garden Lift chosen
+                 repaints East Lift copy over a Garden Lift selection. -->
+            <select id="facility-select" name="facility" autocomplete="off">
+              <option value="east-lift" selected>East Lift L2</option>
+              <option value="garden-lift">Garden Lift L4</option>
+            </select>
+          </div>
+          <button class="button button-secondary button-wide" type="button" id="outage-now-button">Take East Lift offline now</button>
+          <button class="button button-quiet button-wide" type="button" id="restore-outage-button" disabled>Put East Lift back in service</button>
+        </aside>
+      </section>
+
+      <section class="operator-proof" aria-labelledby="proof-heading">
+        <div>
+          <p class="eyebrow">ATOMICITY MONITOR</p>
+          <h2 id="proof-heading">No half-bookings</h2>
+        </div>
+        <dl>
+          <div><dt>Bookings</dt><dd id="proof-bookings">0</dd></div>
+          <div><dt>Reserved resources</dt><dd id="proof-resources">0</dd></div>
+          <div><dt>Current phase</dt><dd id="proof-phase">READY</dd></div>
+        </dl>
+        <p class="proof-explanation" id="proof-explanation">Reservable: wheelchair space, companion seat and host slot. Revalidated: entrance route and lift.</p>
+      </section>
+
+      <section class="operator-audit" aria-labelledby="operator-audit-heading">
+        <div class="operator-audit-heading">
+          <div><p class="eyebrow">SERVER EVENTS</p><h2 id="operator-audit-heading">Live transaction log</h2></div>
+          <button class="text-button operator-reset" type="button" id="operator-reset-button">Reset all synthetic data</button>
+        </div>
+        <ol class="operator-log" id="operator-log" role="list"></ol>
+      </section>
+    </main>
+
+    <div class="toast" id="operator-toast" hidden></div>
+    <div class="sr-only" id="a11y-status" role="status"></div>
+    <div class="sr-only" id="a11y-alert" role="alert"></div>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+node_modules/
+*.log
+.DS_Store
+
+# Nothing here needs a secret, and nothing should arrive by accident.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
