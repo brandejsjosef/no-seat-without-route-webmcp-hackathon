@@ -1,13 +1,13 @@
 # Adversarial QA test matrix
 
-Last full run: 1 September 2026, against the commit this file ships in. The
+Last full run: 2 September 2026, against the commit this file ships in. The
 previous run belonged to `309cbed`; these numbers do not.
 
-- `npm run verify` - **711/711**, exit 0, run on 1 September 2026 from this
+- `npm run verify` - **735/735**, exit 0, run on 2 September 2026 from this
   working tree, and again with `PORT=10000`, `NSWR_TRUST_PROXY=1` and
   `NSWR_TRUST_CF_CONNECTING_IP=1` set the way the build environment sets them.
-- `npm run test:browser` - **292/292**, exit 0, run on 1 September 2026 from this
-  working tree on Chrome 151.0.7922.174 with Edge 152.0.4191.53. It needs a real
+- `npm run test:browser` - **364/364**, exit 0, run on 2 September 2026 from this
+  working tree on Chrome 152.0.7977.65 with Edge 152.0.4191.53. It needs a real
   browser, so no offline gate can reproduce that figure.
 
 A commit this record does not name has not been measured here. Two commits on
@@ -38,7 +38,7 @@ runs the whole suite against another Chromium build; whichever engine drives the
 run, one scenario also opens Microsoft Edge when it is installed and records
 what that engine really exposes.
 
-Latest measured result, on the commit this file ships in: **711/711 Node tests** and **292/292 Chrome checks**
+Latest measured result, on the commit this file ships in: **735/735 Node tests** and **364/364 Chrome checks**
 passed. The Node figure is reproducible offline from a clean checkout of that
 commit; the Chrome figure is a dated measurement rather than a computed one,
 because producing it needs a browser. Neither figure covers a later commit.
@@ -49,6 +49,19 @@ than assumed: Edge exposes `document.modelContext`, registers all seven tools
 completes a booking end to end. The suite does not require that — where a
 Chromium build has no WebMCP, the same scenario requires the page to say
 *Manual demo mode*, expose no tool chips, and stay usable.
+
+Measured separately in **Firefox 155** with a throwaway profile at 320 x 568:
+Firefox exposed no `document.modelContext`, the page truthfully showed *Manual
+demo mode*, and the ordinary Build -> review -> Confirm flow produced a receipt
+with `0` partial reservations and no console error. This is a recorded fallback
+smoke test, not part of the automated Chromium count above.
+
+Lighthouse 13.4.0 in headless Chrome 152, mobile preset, three local release-
+candidate runs per page on 2 September 2026: visitor medians **98 / 100 / 100 /
+100** and operator medians **100 / 100 / 100 / 100**, in Performance /
+Accessibility / Best Practices / SEO order. All six reports completed without a
+runtime error. These are automated lab scores, not a manual accessibility audit
+or certification.
 
 ## Release gates
 
@@ -74,13 +87,21 @@ Chromium build has no WebMCP, the same scenario requires the page to say
 | API-02 | Send inherited-property identifiers and malformed bodies | No prototype lookup or malformed mutation succeeds | `test/hardening.test.mjs` |
 | BROWSER-01 | Reload plus visitor/operator tabs on one shared venue link | Same demo and correct role-specific tool surfaces survive | `e2e/browser.mjs` |
 | BROWSER-02 | Rapid double-click on build and confirm | One logical transition; no duplicate resources | `e2e/browser.mjs` |
+| BROWSER-03 | Build from READY with two, one and zero operational lifts | Two lifts select the preferred East route; one lift selects the only working route; zero lifts create no plan or reservation and leave the Build control available for a truthful retry | `test/domain.test.mjs`, `test/uat/operator.uat.test.mjs`, `e2e/browser.mjs` |
+| OPERATOR-01 | Select East or Garden with the visible lift cards, mouse or arrow keys, then let the one-second poll run | The chosen native radio, keyboard focus and DOM node survive the poll; every arm, outage and restore label names the selected lift; selection alone sends no write request | `test/uat/map-and-operator.uat.test.mjs`, `test/uat/presentation.uat.test.mjs`, `e2e/browser.mjs` |
+| OPERATOR-02 | Take the lift used by a confirmed booking offline | The first click performs no write and opens an inline acknowledgement naming the booking and consequences; only the explicit second step sends one outage request. Operator and visitor keep the confirmed receipt, show a persistent route-disruption warning, report `1` booking, `3` reserved and `0` partial resources, and clear the warning after restore without deleting the booking | `test/uat/operator.uat.test.mjs`, `test/uat/views.uat.test.mjs`, `e2e/browser.mjs` |
+| OPERATOR-03 | Take only the lift not used by a confirmed booking offline, then take both offline | The unrelated outage raises no false booking warning. With both down, the venue reports no working lift route but attributes booking impact only to the lift the booking actually uses | `test/uat/views.uat.test.mjs`, `e2e/browser.mjs` |
 | A11Y-01 | Keyboard-only visitor flow | Visible focus reaches controls and the flow completes | `e2e/browser.mjs` |
-| A11Y-02 | 320, 375, 768 and 1440 px viewports | No horizontal overflow; Copy is at least 44 by 44 px at 320 px | `e2e/browser.mjs` |
+| A11Y-02 | Portrait viewports 320x568, 360x800, 375x667, 390x844, 412x915 and 768x1024; landscape 568x320, 667x375, 844x390 and 915x412; desktop 1440x800 and 1920x889; then visitor and operator at 320x568 with text enlarged to 200% | No horizontal overflow or clipped WebMCP badge; visitor Copy and home wordmark are at least 44 by 44 CSS px; operator lift cards and controls remain touch sized; the 200% check includes the visitor's open disclosures and reports offending elements when it fails | `e2e/browser.mjs` |
+| A11Y-03 | Ask the operating system for reduced motion | The media query is active and removes material button animation | `e2e/browser.mjs` |
 | FAILURE-01 | Trigger the intentional stale-plan conflict | UI explains the refusal and still offers explanation/replan | `e2e/browser.mjs` |
 | FAILURE-02 | Replan around the failed East Lift and confirm | Garden route commits atomically; `partialReservations` remains `0` | `test/domain.test.mjs`, `e2e/browser.mjs` |
+| FAILURE-03 | Press Build while both lifts are already offline and wait beyond the toast lifetime | A persistent inline refusal stays inside the Access plan card and in the viewport, focus moves to its heading, the phase settles back to READY, the button reads `Recheck route availability`, and no progress label or partial reservation remains. Restoring one lift clears the refusal through the ordinary poll and the same button builds a complete route | `test/uat/ready-explanation.uat.test.mjs`, `test/uat/regressions.uat.test.mjs`, `e2e/browser.mjs` |
 | OBS-01 | Watch console and network in routine flows | No unexpected console error or HTTP 4xx/5xx | `e2e/browser.mjs` |
 | MANUAL-01 | Run the whole failure-and-recovery flow in a browser with no WebMCP at all, using only the visible buttons | Plan, armed fault, refusal, replan and confirmation all complete; zero partial reservations. A `MutationObserver` installed before the first click records every node inserted into the tool list, so a chip that appeared and was removed again is still caught; a probe chip proves the recorder was live | `e2e/browser.mjs` |
 | ENGINE-01 | Open the page in Microsoft Edge | Whatever Edge exposes, the badge matches it and a booking completes; no WebMCP means *Manual demo mode*, not an invented surface | `e2e/browser.mjs` |
+| ENGINE-02 | Open the ordinary visitor flow in Firefox 155 with no WebMCP API, at 320x568 | The fallback says *Manual demo mode*; Build, review and Confirm produce one receipt with zero partial reservations, no horizontal overflow and no console error | Manual throwaway-profile smoke recorded above; not counted as an automated gate |
+| QUALITY-01 | Run Lighthouse 13.4.0 three times per page in Chrome 152 with the mobile preset | The footer reports the per-page medians in category order and names the date, runner, preset and run count; it explicitly says the result is not a manual accessibility audit or certification | `test/uat/presentation.uat.test.mjs`; six JSON reports recorded outside the repository |
 | NARROW-01 | 375 px: the header's live indicator is hidden by design | The refusal card, its venue revision and the partial count stay reachable; a venue that goes stale becomes visible at that width | `e2e/browser.mjs` |
 | RESTART-01 | Restart the server under a page holding a staged plan or a booking | Old session refused, old plan identifiers dead, no booking or reservation resurrected | `test/resilience.test.mjs` |
 | RESTART-02 | Reopen the same `?demo=` link after a restart | The page says the venue is gone instead of presenting the rebuilt empty one as real; announced assertively | `e2e/browser.mjs`, `test/resilience.test.mjs` |
@@ -119,6 +140,7 @@ everything else.
 | `test/uat/http-contract.uat.test.mjs` | Fourteen guarded routes and nine static ones against each way of getting them wrong - session, role, origin, fetch metadata, method, body - with the exact status, the exact error code and all six security headers asserted on every response the suite produces. Both route lists are typed into the test rather than read out of `server.mjs`, so a route added there is covered only when somebody adds it here too |
 | `test/uat/shared-venue.uat.test.mjs` | Two sessions on one venue, role isolation, and whole-venue snapshot equality either side of a refused write |
 | `test/uat/dom-contract.uat.test.mjs` | The contract between the HTML and the JS: every queried id exists, every ARIA reference resolves, every button has a name. Static, no browser |
+| `test/uat/presentation.uat.test.mjs` | The judge-facing hierarchy on both pages: the browser-agent prompt leads the visitor walkthrough; activity, requirements and the locked-until-review safe-failure control follow in order; shared-venue copying stays secondary; the operator's venue revision and no-half-bookings proof precede its controls; and the lift selector and empty-log contrast remain usable on a small screen |
 | `test/uat/resilience.uat.test.mjs` | Log and plan growth bounds, the session limiter and its trusted-header rules, and that a restart resurrects nothing |
 | `test/uat/regressions.uat.test.mjs` | One test per defect found by using the deployed app: the stale event date, the plan with no way back, the disabled control that lied, a phase label naming a control that phase hides, the refusal that erased itself, and three copy claims the page could not support. Run whole against `cf376a1`, 14 of its 17 cases fail there and 3 pass: the escape that does not depend on the incident card, which passes only because that build had no such control at all, and the two document-consistency checks, which `cf376a1` already satisfied. The label case is newer than `cf376a1` and was written against `2d7d08b` |
 | `test/uat/map-and-operator.uat.test.mjs` | The map, and the operator page's human controls - not the operator page as a whole, whose tool surface and HTTP routes were already covered elsewhere. That the map can draw a failure at all, that it follows whichever lift the plan uses rather than one hardcoded id, that the garden route ends on the wheelchair space, that a human control exists for every lift the venue reports, and that every control whose action follows the facility selector rewrites its own label instead of naming one lift in static markup |
@@ -127,7 +149,7 @@ everything else.
 | `test/uat/pending-fault.uat.test.mjs` | A pending venue fault is defended by the venue, not by the pages that show it: arming a second facility is refused with `OUTAGE_ALREADY_ARMED` and changes nothing, re-arming the same one is idempotent and writes no second audit line, and the invariant holds over real HTTP, which is where it was reachable |
 | `test/uat/declarative-tool.uat.test.mjs` | The declarative form is a whole WebMCP tool or none at all: no shipped form carries `toolname` without `tooldescription` or the reverse, both attributes are written from one place in both directions, and the real swap is run against a DOM applying Blink's own predicate after every mutation. Written after Chrome DevTools filed kFormModelContextMissingToolDescription against the live page for a description set one statement too late; a CDP Audits probe measured 2 issues before the fix and 0 after |
 | `test/uat/unsatisfiable-limits.uat.test.mjs` | A limit no route can meet is refused with the number that would work. maxDistanceM accepts from 20 m while nothing plans under the venue floor, and every value in that dead band drew the same sentence as an ordinary near-miss, so an agent was told no and not told what would be yes. The floor is measured from the venue at runtime and asserted to appear nowhere in the shipped source, because raising the published schema minimum would freeze today route data into the contract |
-| `test/uat/views.uat.test.mjs` | The two page decisions that kept naming the wrong lift, as pure functions both pages and these tests import. The visitor fault control read the East outage before the armed fault, so with East out and Garden armed it offered a restore while setting aria-disabled=true - naming an action it would refuse. Every mode is now asserted to send exactly what it names, and a disabled control to send nothing. Decision-log titles resolve the facility from the entry own refs, so an arm is titled for the lift it armed and never for the other one |
+| `test/uat/views.uat.test.mjs` | The two page decisions that kept naming the wrong lift, as pure functions both pages and these tests import. The visitor fault control read the East outage before the armed fault, so with East out and Garden armed it offered a restore while setting aria-disabled=true - naming an action it would refuse. Every mode is now asserted to send exactly what it names, a disabled control to send nothing, and the review-to-commit fault to remain locked until a complete plan awaits confirmation. Decision-log titles resolve the facility from the entry own refs, so an arm is titled for the lift it armed and never for the other one |
 | `test/uat/dead-end-advice.uat.test.mjs` | The advertised next action follows the diagnosis shipped beside it. With both lifts out the venue answered requirementChangeCanHelp false and nextAction CHANGE_REQUIREMENTS in the same object, so an agent following the advice would loop. The rule is reachability, not the blocker list: both lifts out plus a distance blocker is still CONTACT_VENUE_STAFF, while one lift out plus a relaxable distance is still CHANGE_REQUIREMENTS. Asserted equal across domain, HTTP and the explain call |
 | `test/uat/ready-explanation.uat.test.mjs` | A refusal that opened no plan is still explicable. From a fresh visit with every lift out the search refuses, no plan exists, the phase stays READY, and explainRefusal used to answer Nothing is blocked - so registering the tool in READY without this made the tool present and wrong rather than absent. The stored context holds the question only, never the answer, and is re-evaluated against current resources on every read, so a repaired venue answers blocked false and a venue that closed further is described by what blocks it now. It lives outside the snapshot: one visitor refused search is not venue state |
 | `test/uat/client-revision.uat.test.mjs` | A number the caller got wrong is not a venue change. commitBundle compared the caller revision in the same condition as the plan and the confirmation, so a stale tab or a typo produced STALE_RESOURCE_VERSION and pushed a plan nothing had invalidated to STALE - reporting two identical revisions, an empty rule list, and offering back the route the plan already held. The check also ran after the demo fault had been triggered, so a bad number could spend a fault armed for a real confirmation. Wrong numbers now answer EXPECTED_RESOURCE_VERSION_MISMATCH, change nothing, and leave the plan confirmable; a venue that really moved is still STALE_RESOURCE_VERSION |

@@ -24,8 +24,11 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { faultControlView, raceIntroView, auditTitle, operatorEndpoint } from '../../public/views.mjs';
-import { createDemoStore } from '../../lib/domain.mjs';
+import {
+  faultControlView, raceIntroView, auditTitle, operatorEndpoint, bookingImpactView,
+  operatorPhaseLabel,
+} from '../../public/views.mjs';
+import { createDemoStore, demoDefaults } from '../../lib/domain.mjs';
 
 const store = () => createDemoStore({
   clock: () => Date.parse('2026-08-31T18:00:00.000Z'),
@@ -34,6 +37,26 @@ const store = () => createDemoStore({
 
 const EAST = 'east-lift';
 const GARDEN = 'garden-lift';
+
+test('operator phase labels are readable inside the compact monitor', () => {
+  assert.equal(operatorPhaseLabel('AWAITING_HUMAN_CONFIRMATION'), 'AWAITING VISITOR');
+  assert.equal(operatorPhaseLabel('PLAN_STALE'), 'ROUTE CHANGED');
+  assert.equal(operatorPhaseLabel('FUTURE_PHASE'), 'FUTURE PHASE');
+});
+
+function confirmVenue(venue, requirements = demoDefaults) {
+  const proposed = venue.findBundle(requirements);
+  const staged = venue.stageBundle(proposed.id, proposed.basedOnResourceVersion);
+  const confirmation = venue.prepareConfirmation(staged.id);
+  venue.commitBundle({
+    planId: staged.id,
+    confirmationId: confirmation.confirmationId,
+    expectedResourceVersion: confirmation.expectedResourceVersion,
+    accepted: true,
+    requestId: 'booking-impact-test',
+  });
+  return venue.snapshot();
+}
 
 describe('the visitor fault control never names an action it will refuse', () => {
   test('a pending fault wins over an East outage', () => {
@@ -73,9 +96,22 @@ describe('the visitor fault control never names an action it will refuse', () =>
     assert.deepEqual(view.request, { method: 'POST', path: `/api/operator/facilities/${EAST}/restore` });
   });
 
-  test('an idle venue offers the arm, and the arm is the one it names', () => {
+  test('an idle venue keeps the safe-failure test locked until there is a plan to confirm', () => {
     const view = faultControlView(store().snapshot());
+    assert.equal(view.mode, 'LOCKED');
+    assert.match(view.text, /Build a plan/i);
+    assert.equal(view.ariaDisabled, true);
+    assert.equal(view.request, null);
+  });
+
+  test('a staged plan offers the arm, and the arm is the one it names', () => {
+    const venue = store();
+    const plan = venue.findBundle(demoDefaults);
+    venue.stageBundle(plan.id, plan.basedOnResourceVersion);
+    const view = faultControlView(venue.snapshot());
     assert.equal(view.mode, 'ARM');
+    assert.match(view.text, /East Lift L2/);
+    assert.match(view.hint, /stays online until then/i);
     assert.equal(view.ariaDisabled, false);
     assert.deepEqual(view.request, { method: 'POST', path: `/api/operator/facilities/${EAST}/arm` });
   });
@@ -208,6 +244,80 @@ describe('an operator endpoint is built from the facility it was asked about', (
   });
 });
 
+describe('confirmed booking impact is tied to the lift that booking actually uses', () => {
+  test('an intact booking and an outage on the other route raise no alarm', () => {
+    const venue = store();
+    confirmVenue(venue);
+    assert.equal(bookingImpactView(venue.snapshot()).visible, false);
+
+    venue.setFacilityOutage(GARDEN, 'POWER_FAULT');
+    assert.equal(bookingImpactView(venue.snapshot()).visible, false);
+  });
+
+  test('the booked East lift going offline keeps the booking but raises a truthful persistent impact', () => {
+    const venue = store();
+    const before = confirmVenue(venue);
+    const originalBooking = before.booking;
+    venue.setFacilityOutage(EAST, 'POWER_FAULT');
+    const after = venue.snapshot();
+    const impact = bookingImpactView(after);
+
+    assert.equal(after.phase, 'CONFIRMED');
+    assert.deepEqual(after.booking, originalBooking, 'the outage silently rewrote the booking');
+    assert.equal(after.atomicity.bookingCount, 1);
+    assert.equal(after.atomicity.reservedResourceCount, 3);
+    assert.equal(impact.visible, true);
+    assert.equal(impact.variant, 'CONFIRMED_ROUTE_DISRUPTED');
+    assert.deepEqual(impact.affectedResourceIds, [EAST]);
+    assert.match(impact.message, new RegExp(originalBooking.receipt));
+    assert.match(impact.message, /East Lift L2/);
+    assert.equal(impact.bookingStillStands, true);
+    assert.equal(impact.automaticCancellation, false);
+    assert.equal(impact.automaticReroute, false);
+    assert.equal(impact.pageWarningVisible, true);
+    assert.equal(impact.outOfBandNotification, false);
+  });
+
+  test('both lifts offline reports no lift route but names only the booking\'s own lift', () => {
+    const venue = store();
+    confirmVenue(venue);
+    venue.setFacilityOutage(EAST, 'POWER_FAULT');
+    venue.setFacilityOutage(GARDEN, 'POWER_FAULT');
+    const impact = bookingImpactView(venue.snapshot());
+
+    assert.equal(impact.variant, 'NO_LIFT_ROUTE');
+    assert.equal(impact.onlineLiftCount, 0);
+    assert.deepEqual(impact.affectedLabels, ['East Lift L2']);
+    assert.match(impact.message, /Both lifts are out of service/);
+    assert.doesNotMatch(impact.message, /uses Garden Lift L4/);
+  });
+
+  test('the same detection works for a booking routed over Garden Lift L4', () => {
+    const venue = store();
+    venue.setFacilityOutage(EAST, 'POWER_FAULT');
+    confirmVenue(venue, { ...demoDefaults, maxDistanceM: 160 });
+    assert.equal(venue.snapshot().booking.routeId, 'garden-lift-route');
+    assert.equal(bookingImpactView(venue.snapshot()).visible, false, 'the unrelated East outage raised an alarm');
+
+    venue.setFacilityOutage(GARDEN, 'POWER_FAULT');
+    const impact = bookingImpactView(venue.snapshot());
+    assert.deepEqual(impact.affectedResourceIds, [GARDEN]);
+    assert.match(impact.message, /Garden Lift L4/);
+  });
+
+  test('an unavailable reserved seat is never relabelled as an affected facility', () => {
+    const venue = store();
+    confirmVenue(venue);
+    venue.setFacilityOutage(EAST, 'POWER_FAULT');
+    venue.setResourceUnavailable('space-w12');
+    const impact = bookingImpactView(venue.snapshot());
+
+    assert.deepEqual(impact.affectedResourceIds, [EAST]);
+    assert.deepEqual(impact.affectedLabels, ['East Lift L2']);
+    assert.doesNotMatch(impact.message, /Wheelchair space/);
+  });
+});
+
 /**
  * The paragraph above the arm button told the operator to arm a fault in every
  * state, including the two where the server refuses to: a lift already out of
@@ -238,6 +348,17 @@ describe('the operations intro never instructs an action the venue refuses', () 
     const view = raceIntroView(alreadyArmed().snapshot(), { facilityId: 'east-lift' });
     assert.equal(view.canArm, false, 'a second arm is refused, and the page still asks for one');
     assert.doesNotMatch(view.text, /^arm a fault/i);
+  });
+
+  test('a confirmed booking is not told to arm a confirmation that can no longer happen', () => {
+    const venue = store();
+    const snapshot = confirmVenue(venue);
+    const view = raceIntroView(snapshot, { facilityId: EAST });
+
+    assert.equal(view.canArm, false);
+    assert.match(view.text, /safe-failure test is complete/i);
+    assert.match(view.text, /reset/i);
+    assert.doesNotMatch(view.text, /before the server commits/i);
   });
 
   test('the sentence names the lift the control acts on', () => {

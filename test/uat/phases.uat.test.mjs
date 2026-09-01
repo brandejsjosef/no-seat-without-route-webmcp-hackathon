@@ -304,7 +304,7 @@ const OUTCOMES = {
     // Operations keep operating. The lift goes out, the booking record stands.
     setFacilityOutage: moves('CONFIRMED', 1),
     restoreFacility: moves('CONFIRMED', 0),
-    armOutage: moves('CONFIRMED', 0),
+    armOutage: refuses('BOOKING_ALREADY_CONFIRMED', 'CONFIRMED'),
   },
 };
 

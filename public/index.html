@@ -14,18 +14,18 @@
     <a class="skip-link" href="#main">Skip to booking</a>
 
     <header class="site-header">
-      <a class="wordmark" href="/" aria-label="No Seat Without a Route, home">
+      <a class="wordmark" href="/" aria-label="N/R No Seat Without a Route, home">
         <span class="wordmark-mark" aria-hidden="true">N/R</span>
-        <span>NO SEAT<br>WITHOUT A ROUTE</span>
+        <span class="wordmark-copy">NO SEAT<br>WITHOUT A ROUTE</span>
       </a>
       <div class="header-actions">
         <div class="live-status" id="venue-live-status">
           <span class="live-dot" aria-hidden="true"></span>
           <span id="venue-live-text">Venue data live</span>
-          <span class="mono" id="venue-version">rev —</span>
+          <span class="mono" id="venue-version">Venue revision —</span>
         </div>
         <div class="webmcp-status" id="webmcp-status" title="WebMCP connection status">
-          <span aria-hidden="true">◇</span>
+          <span class="webmcp-label">WebMCP ·</span>
           <span id="webmcp-status-text">Checking WebMCP…</span>
         </div>
         <a class="text-link" id="operator-link" href="/operator" target="_blank" rel="noopener">Venue operator ↗</a>
@@ -44,11 +44,10 @@
         <div class="hero-copy">
           <p class="eyebrow">RIVERSIDE HALL · ACCESS BOOKING</p>
           <h1 id="hero-heading">A seat is only accessible when the route works.</h1>
-          <p class="hero-lede">We verify the route, wheelchair space, companion seat and on-site help as one plan. If one part fails, nothing is booked.</p>
+          <p class="hero-lede">Route, wheelchair space, companion seat and assistance are checked together. If one fails, nothing is booked.</p>
         </div>
         <article class="event-ticket" aria-label="Event details">
           <div>
-            <p class="ticket-kicker">ONE NIGHT ONLY</p>
             <h2>Evening at Riverside Hall</h2>
             <p>Tonight · 7:30 PM</p>
             <p>Main auditorium</p>
@@ -60,45 +59,41 @@
         </article>
       </section>
 
-      <section class="promise-strip" aria-label="Booking promise">
-        <div class="shell promise-grid">
-          <p><span>01</span> Only functional needs</p>
-          <p><span>02</span> Live venue resources</p>
-          <p><span>03</span> All-or-nothing confirmation</p>
+      <section class="agent-callout quick-start shell" aria-labelledby="agent-heading">
+        <div class="quick-start-copy">
+          <p class="eyebrow">STEP 1 · USE YOUR AGENT</p>
+          <h2 id="agent-heading">Ask your browser agent.</h2>
+          <p>Your browser agent can prepare a complete plan. You make the booking decision.</p>
+        </div>
+        <div class="prompt-card">
+          <div class="prompt-card-heading">
+            <span>Copy this request</span>
+            <button class="copy-button" type="button" id="copy-prompt-button">Copy prompt</button>
+          </div>
+          <p id="example-prompt">Find a step-free plan for me and one companion. My chair is 72 cm wide, keep the route under 80 metres, use a quieter entrance and arrange entrance assistance. Prepare the complete plan, but let me confirm it.</p>
+          <details class="tool-disclosure">
+            <summary>View browser tools</summary>
+            <div class="tool-list" id="tool-list" role="list" aria-label="Available WebMCP tools"></div>
+          </details>
         </div>
       </section>
 
       <section class="protocol-strip" aria-label="Browser agent activity">
         <div class="shell protocol-grid">
           <span class="protocol-label">AGENT ACTIVITY</span>
-          <span id="protocol-channel">Waiting for a browser agent</span>
-          <span aria-hidden="true">→</span>
-          <code id="protocol-tool">no tool called</code>
-          <span aria-hidden="true">→</span>
-          <strong id="protocol-result">UI unchanged</strong>
-        </div>
-      </section>
-
-      <section class="shell demo-controls" aria-labelledby="demo-controls-heading">
-        <div class="demo-controls-copy">
-          <p class="eyebrow">DEMO CONTROLS</p>
-          <h2 id="demo-controls-heading">Make the venue fail mid-booking</h2>
-          <p>Real venues change while someone is deciding. Take the lift out of service after a plan is prepared, then confirm, and watch the server refuse the stale plan.</p>
-        </div>
-        <div class="demo-controls-actions">
-          <button class="button button-warning" type="button" id="fault-button" aria-describedby="fault-hint">Take the lift out of service while I confirm</button>
-          <button class="button button-quiet" type="button" id="share-link-button">Copy shared venue link</button>
-          <p class="demo-hint" id="fault-hint">Do this while a plan is prepared but not yet confirmed, then press confirm.</p>
+          <span class="protocol-field"><small>Agent</small><span id="protocol-channel">Waiting for a browser agent</span></span>
+          <span class="protocol-field"><small>Tool</small><code id="protocol-tool">no tool called</code></span>
+          <span class="protocol-field"><small>Page</small><strong id="protocol-result">UI unchanged</strong></span>
         </div>
       </section>
 
       <section class="shell booking-section" aria-labelledby="booking-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">YOUR VISIT</p>
+            <p class="eyebrow">STEP 2 · YOUR VISIT</p>
             <h2 id="booking-heading">What must work for you?</h2>
           </div>
-          <p>Choose only what matters for this visit. We do not ask for a diagnosis, medical history or proof.</p>
+          <p>Choose what matters for this visit. No diagnosis or medical proof required.</p>
         </div>
 
         <div class="booking-grid">
@@ -112,13 +107,14 @@
                 data-tool-description="Update the visible access requirements form for human review. Omitted fields keep their visible values; invalid numbers are rejected. The visitor submits it. This does not book anything.">
             <fieldset>
               <legend class="sr-only">Functional access requirements</legend>
+              <p class="requirements-intro"><strong>Demo defaults.</strong> Review before planning.</p>
 
               <label class="check-row">
                 <input type="checkbox" name="stepFree" checked
                        toolparamdescription="Check when every segment from street to seat must avoid steps.">
                 <span>
                   <strong>Step-free from street to seat</strong>
-                  <small>No stairs or required transfer</small>
+                  <small>No stairs or transfer</small>
                 </span>
               </label>
 
@@ -127,7 +123,6 @@
                        toolparamdescription="Check when one companion seat next to the wheelchair space is needed.">
                 <span>
                   <strong>Companion seat next to mine</strong>
-                  <small>One adjacent seat in the same plan</small>
                 </span>
               </label>
 
@@ -136,7 +131,7 @@
                        toolparamdescription="Check when a host should meet the visitor at the entrance.">
                 <span>
                   <strong>Meet me at the entrance</strong>
-                  <small>A named host at the planned arrival</small>
+                  <small>Host at your planned entrance</small>
                 </span>
               </label>
 
@@ -165,7 +160,7 @@
 
             <div class="privacy-note">
               <span class="privacy-icon" aria-hidden="true">○</span>
-              <p><strong>Data minimised.</strong> The venue receives operational requirements, never a diagnosis or free-text medical history.</p>
+              <p><strong>Data minimised.</strong> Only operational needs are shared—never a diagnosis or medical history.</p>
             </div>
 
             <button class="button button-primary button-wide" type="submit" id="build-plan-button">
@@ -177,13 +172,19 @@
           </form>
 
           <section class="assurance-card" id="assurance-card" aria-label="Access plan">
+            <div class="plan-feedback" id="plan-feedback" role="alert" hidden>
+              <p class="eyebrow">NO COMPLETE PLAN RIGHT NOW</p>
+              <h3 id="plan-feedback-heading" tabindex="-1">No complete accessible route is available</h3>
+              <p id="plan-feedback-message"></p>
+              <p class="plan-feedback-proof"><strong>Nothing was booked or reserved.</strong></p>
+            </div>
+
             <div class="assurance-empty" id="assurance-empty">
               <div class="empty-mark" aria-hidden="true">
                 <span></span><span></span><span></span>
               </div>
               <p class="eyebrow">WAITING FOR REQUIREMENTS</p>
-              <h3 id="assurance-heading">One plan, checked end to end.</h3>
-              <p>We will not offer a seat until its entrance, route, lift and assistance all work together.</p>
+              <h3 id="assurance-heading">Nothing is booked until the whole plan works.</h3>
               <dl class="empty-metrics">
                 <div><dt>Partial bookings</dt><dd>Never</dd></div>
                 <div><dt>Medical diagnosis</dt><dd>Not collected</dd></div>
@@ -211,6 +212,18 @@
             </div>
           </section>
         </div>
+
+        <section class="demo-controls" id="demo-controls" hidden aria-labelledby="demo-controls-heading">
+          <div class="demo-controls-copy">
+            <p class="eyebrow" id="demo-controls-eyebrow">STEP 3 · TEST THE SAFE FAILURE</p>
+            <h2 id="demo-controls-heading">Break the plan during confirmation</h2>
+            <p id="demo-controls-copy">Arm a lift failure, then confirm. The server must reject the stale plan.</p>
+          </div>
+          <div class="demo-controls-actions">
+            <button class="button button-warning" type="button" id="fault-button" aria-describedby="fault-hint" aria-disabled="true">Build a plan to unlock this test</button>
+            <p class="demo-hint" id="fault-hint">Fails on the next confirmation; the lift stays online until then.</p>
+          </div>
+        </section>
       </section>
 
       <section class="shell route-section" id="route-section" hidden aria-labelledby="route-heading">
@@ -303,6 +316,12 @@
       </section>
 
       <section class="receipt-section" id="receipt-section" hidden aria-labelledby="receipt-heading">
+        <div class="shell booking-impact visitor-booking-impact" id="booking-impact-alert" role="alert" aria-labelledby="booking-impact-alert-heading" hidden>
+          <p class="eyebrow">CONFIRMED ROUTE DISRUPTION</p>
+          <h2 id="booking-impact-alert-heading">Your confirmed route has been disrupted</h2>
+          <p id="booking-impact-alert-message"></p>
+          <p class="booking-impact-proof" id="booking-impact-alert-proof"></p>
+        </div>
         <div class="shell receipt-grid">
           <div class="receipt-intro">
             <p class="eyebrow">CONFIRMED TOGETHER</p>
@@ -326,37 +345,48 @@
             <p class="eyebrow">DECISION LOG</p>
             <h2 id="audit-heading">What actually happened</h2>
           </div>
-          <p>The log records successful and rejected actions. It never contains medical information or confirmation tokens.</p>
+          <p>Successful and rejected actions. No medical data or confirmation tokens.</p>
         </div>
         <ol class="audit-list" id="audit-list" role="list">
           <li class="audit-empty">No actions yet.</li>
         </ol>
       </section>
 
-      <section class="agent-callout shell" aria-labelledby="agent-heading">
-        <div>
-          <p class="eyebrow">BRING YOUR OWN AGENT</p>
-          <h2 id="agent-heading">The venue exposes capabilities, not another chatbot.</h2>
-          <p>Your browser agent brings your private preferences. This site contributes live inventory, route constraints and the booking state of this shared venue.</p>
-        </div>
-        <div class="prompt-card">
-          <div class="prompt-card-heading">
-            <span>Example request</span>
-            <button class="copy-button" type="button" id="copy-prompt-button">Copy</button>
-          </div>
-          <p id="example-prompt">Find a step-free plan for me and one companion. My chair is 72 cm wide, keep the route under 80 metres, use a quieter entrance and arrange entrance assistance. Prepare the complete plan, but let me confirm it.</p>
-          <div class="tool-list" id="tool-list" role="list" aria-label="Available WebMCP tools"></div>
-        </div>
-      </section>
     </main>
 
     <footer class="site-footer">
       <div class="shell footer-grid">
         <p><strong>No Seat Without a Route</strong><br>A synthetic WebMCP demonstration. No real tickets are issued.</p>
         <div class="footer-actions">
+          <button class="text-button footer-share" type="button" id="share-link-button">Copy shared venue link</button>
           <button class="text-button footer-reset" type="button" id="reset-button">Reset demo</button>
           <a id="footer-operator-link" href="/operator" target="_blank" rel="noopener">Open venue operator ↗</a>
         </div>
+      </div>
+      <div class="shell">
+        <details class="footer-evidence" id="lighthouse-evidence">
+          <summary>Automated Lighthouse snapshot · <time datetime="2026-09-02">2 Sep 2026</time></summary>
+          <div class="footer-evidence-body">
+            <p class="footer-evidence-meta">Lighthouse 13.4.0 · Chrome 152 · mobile preset · median of 3 runs</p>
+            <table class="footer-evidence-scores">
+              <caption class="sr-only">Median Lighthouse scores from three mobile runs, in Performance, Accessibility, Best Practices and SEO order.</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Page</th>
+                  <th scope="col"><span aria-hidden="true">P</span><span class="sr-only">Performance</span></th>
+                  <th scope="col"><span aria-hidden="true">A</span><span class="sr-only">Accessibility</span></th>
+                  <th scope="col"><span aria-hidden="true">BP</span><span class="sr-only">Best Practices</span></th>
+                  <th scope="col"><span aria-hidden="true">SEO</span><span class="sr-only">SEO</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">Visitor</th><td>98</td><td>100</td><td>100</td><td>100</td></tr>
+                <tr><th scope="row">Operator</th><td>100</td><td>100</td><td>100</td><td>100</td></tr>
+              </tbody>
+            </table>
+            <p class="footer-evidence-note">Automated scores are a dated lab snapshot, not a manual accessibility audit or certification.</p>
+          </div>
+        </details>
       </div>
     </footer>
 

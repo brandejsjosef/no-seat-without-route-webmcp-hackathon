@@ -554,7 +554,14 @@ describe('elements toggled through the hidden property', () => {
     const ids = keysToggledThroughHidden(OPERATOR_JS).map((key) => leadingId(map.get(key) ?? ''));
     assert.deepEqual(
       [...ids].sort(),
-      ['armed-state', 'operator-toast', 'operator-venue-notice'],
+      [
+        'armed-state',
+        'booking-impact',
+        'manual-impact-confirmation',
+        'manual-impact-note',
+        'operator-toast',
+        'operator-venue-notice',
+      ],
       'public/operator.js hides an element the module-scope map does not resolve',
     );
     assert.deepEqual(ids.filter((id) => !present.has(id)), [], 'a hidden toggle names an id the page never declares');
@@ -572,8 +579,11 @@ describe('elements toggled through the hidden property', () => {
     assert.deepEqual(ids.filter((id) => !inSvg.has(id)).sort(), [
       'assurance-empty',
       'assurance-plan',
+      'booking-impact-alert',
       'decision-section',
+      'demo-controls',
       'incident',
+      'plan-feedback',
       'receipt-section',
       'route-section',
       'start-over-button',

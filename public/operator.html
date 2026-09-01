@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#10231f">
+    <meta name="description" content="Monitor live venue lifts, confirmed route impact and atomic accessible bookings.">
     <title>Venue Operations · No Seat Without a Route</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
@@ -22,7 +23,7 @@
           <span id="operator-live-text">Venue data live</span>
         </div>
         <div class="webmcp-status" id="operator-webmcp-status" title="WebMCP connection status">
-          <span aria-hidden="true">◇</span>
+          <span class="webmcp-label">WebMCP ·</span>
           <span id="operator-webmcp-text">Checking WebMCP…</span>
         </div>
         <a class="operator-back" id="visitor-link" href="/" target="_blank" rel="noopener">Open visitor booking ↗</a>
@@ -33,59 +34,105 @@
       <p class="venue-notice" id="operator-venue-notice" hidden></p>
       <section class="operator-title">
         <div>
-          <p class="eyebrow">LIVE FACILITIES</p>
-          <h1>Route operations</h1>
-          <p>This panel represents the venue’s authoritative operational state. The visitor view refreshes it within one second.</p>
+          <p class="eyebrow">SYNTHETIC VENUE STATE</p>
+          <h1>Keep every route honest.</h1>
+          <p>Lift changes reach the visitor page within one second. Stale plans stop before booking.</p>
         </div>
-        <div class="revision-tile">
-          <span>Resource revision</span>
-          <strong id="operator-version">—</strong>
-        </div>
+        <aside class="operator-overview" aria-labelledby="proof-heading">
+          <div class="revision-tile">
+            <span>Venue revision</span>
+            <strong id="operator-version">—</strong>
+          </div>
+          <div class="operator-overview-proof">
+            <p class="eyebrow">ATOMICITY MONITOR</p>
+            <h2 id="proof-heading">No half-bookings</h2>
+            <dl>
+              <div><dt>Bookings</dt><dd id="proof-bookings">0</dd></div>
+              <div><dt>Reserved</dt><dd id="proof-resources">0</dd></div>
+              <div><dt>Phase</dt><dd id="proof-phase">READY</dd></div>
+            </dl>
+            <p class="proof-explanation" id="proof-explanation">Space, seat and host commit together; route and lift are rechecked.</p>
+          </div>
+        </aside>
+      </section>
+
+      <section class="booking-impact" id="booking-impact" role="alert" aria-labelledby="booking-impact-heading" hidden>
+        <p class="eyebrow">CONFIRMED ROUTE IMPACT</p>
+        <h2 id="booking-impact-heading" tabindex="-1">A confirmed booking has lost its working route</h2>
+        <p id="booking-impact-message"></p>
+        <p class="booking-impact-proof" id="booking-impact-proof"></p>
       </section>
 
       <section class="operator-grid" aria-labelledby="facilities-heading">
         <div>
           <h2 id="facilities-heading">Facilities</h2>
-          <div class="facility-list" id="facility-list"></div>
+          <p class="facility-picker-help" id="facility-picker-help">Select a lift to control. Both live states stay visible.</p>
+          <fieldset class="facility-list facility-picker" id="facility-picker" aria-describedby="facility-picker-help">
+            <legend class="sr-only">Lift to control</legend>
+
+            <label class="facility-option" for="facility-east">
+              <input class="facility-radio" id="facility-east" type="radio" name="controlled-facility" value="east-lift"
+                     checked autocomplete="off" aria-labelledby="east-lift-name"
+                     aria-describedby="east-lift-detail east-lift-state">
+              <span class="facility-card" id="east-lift-card">
+                <span class="facility-symbol" aria-hidden="true">L2</span>
+                <span class="facility-copy">
+                  <strong id="east-lift-name">East Lift L2</strong>
+                  <small id="east-lift-detail">Reading venue state…</small>
+                </span>
+                <span class="facility-badges">
+                  <span class="facility-selected" aria-hidden="true">Selected</span>
+                  <span class="facility-state" id="east-lift-state">CHECKING</span>
+                  <span class="facility-fault" id="east-lift-fault" hidden>FAULT ARMED</span>
+                </span>
+              </span>
+            </label>
+
+            <label class="facility-option" for="facility-garden">
+              <input class="facility-radio" id="facility-garden" type="radio" name="controlled-facility" value="garden-lift"
+                     autocomplete="off" aria-labelledby="garden-lift-name"
+                     aria-describedby="garden-lift-detail garden-lift-state">
+              <span class="facility-card" id="garden-lift-card">
+                <span class="facility-symbol" aria-hidden="true">L4</span>
+                <span class="facility-copy">
+                  <strong id="garden-lift-name">Garden Lift L4</strong>
+                  <small id="garden-lift-detail">Reading venue state…</small>
+                </span>
+                <span class="facility-badges">
+                  <span class="facility-selected" aria-hidden="true">Selected</span>
+                  <span class="facility-state" id="garden-lift-state">CHECKING</span>
+                  <span class="facility-fault" id="garden-lift-fault" hidden>FAULT ARMED</span>
+                </span>
+              </span>
+            </label>
+          </fieldset>
         </div>
         <aside class="race-card" aria-labelledby="race-heading">
-          <p class="eyebrow">DEMO CONTROL</p>
-          <h2 id="race-heading">Inject a review-to-commit race</h2>
-          <p id="race-intro">Arm a fault on East Lift L2. The venue will report it after the visitor starts confirming the old plan but before the server commits it.</p>
-          <button class="button button-warning button-wide" type="button" id="arm-outage-button">Arm East Lift fault</button>
+          <p class="eyebrow">SAFE-FAILURE DEMO</p>
+          <h2 id="race-heading">Break the route during confirmation</h2>
+          <p id="race-intro">Arm a fault on East Lift L2. It lands after review but before commit.</p>
+          <button class="button button-warning button-wide" type="button" id="arm-outage-button">Arm a confirmation fault on East Lift L2</button>
           <div class="armed-state" id="armed-state" hidden role="status">
             <span class="pulse-dot" aria-hidden="true"></span>
             Fault armed for next confirmation on <span id="armed-facility">East Lift L2</span>
           </div>
           <hr>
-          <div class="facility-choice">
-            <label for="facility-select">Lift these controls act on</label>
-            <!-- autocomplete="off" so a reload really does start on the default
-                 lift. Browsers restore a select's value across a reload, and the
-                 blurb and the three buttons are static markup until the first
-                 render answers: without this, a reload with Garden Lift chosen
-                 repaints East Lift copy over a Garden Lift selection. -->
-            <select id="facility-select" name="facility" autocomplete="off">
-              <option value="east-lift" selected>East Lift L2</option>
-              <option value="garden-lift">Garden Lift L4</option>
-            </select>
+           <p class="manual-control-heading" id="manual-control-heading">Manual controls · East Lift L2</p>
+           <p class="manual-impact-note" id="manual-impact-note" hidden></p>
+          <button class="button button-secondary button-wide" type="button" id="outage-now-button"
+                  aria-controls="manual-impact-confirmation" aria-expanded="false">Take East Lift L2 offline</button>
+          <div class="manual-impact-confirmation" id="manual-impact-confirmation" role="group"
+               aria-labelledby="manual-impact-confirmation-heading" hidden>
+            <p class="eyebrow">CONFIRM ROUTE DISRUPTION</p>
+            <h3 id="manual-impact-confirmation-heading" tabindex="-1">This will break a confirmed route</h3>
+            <p id="manual-impact-confirmation-message"></p>
+            <div class="manual-impact-actions">
+              <button class="button button-danger" type="button" id="confirm-outage-button">Take East Lift L2 offline anyway</button>
+              <button class="button button-quiet" type="button" id="cancel-outage-button">Keep East Lift L2 in service</button>
+            </div>
           </div>
-          <button class="button button-secondary button-wide" type="button" id="outage-now-button">Take East Lift offline now</button>
-          <button class="button button-quiet button-wide" type="button" id="restore-outage-button" disabled>Put East Lift back in service</button>
+           <button class="button button-quiet button-wide" type="button" id="restore-outage-button" disabled>Restore East Lift L2</button>
         </aside>
-      </section>
-
-      <section class="operator-proof" aria-labelledby="proof-heading">
-        <div>
-          <p class="eyebrow">ATOMICITY MONITOR</p>
-          <h2 id="proof-heading">No half-bookings</h2>
-        </div>
-        <dl>
-          <div><dt>Bookings</dt><dd id="proof-bookings">0</dd></div>
-          <div><dt>Reserved resources</dt><dd id="proof-resources">0</dd></div>
-          <div><dt>Current phase</dt><dd id="proof-phase">READY</dd></div>
-        </dl>
-        <p class="proof-explanation" id="proof-explanation">Reservable: wheelchair space, companion seat and host slot. Revalidated: entrance route and lift.</p>
       </section>
 
       <section class="operator-audit" aria-labelledby="operator-audit-heading">

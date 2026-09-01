@@ -744,12 +744,105 @@ describe('a valid session on every route', () => {
     assert.equal(cleared.code, 'PLAN_ALREADY_COMMITTED');
   });
 
+  test('the operator page cannot race a new booking past its outage review', async () => {
+    const visitor = await openSession('visitor');
+    const operator = await openSession('operator', visitor.demoId);
+
+    // This is the snapshot an operator could have reviewed while no booking
+    // existed. Planning and staging do not advance the venue revision; the
+    // atomic booking commit does.
+    const reviewedBeforeBooking = await readState(operator.token);
+    assert.equal(reviewedBeforeBooking.booking, null);
+
+    const planned = await post('/api/plans', { requirements: ALL_REQUIREMENTS }, visitor.token);
+    assert.equal(planned.status, 201);
+    assert.equal(planned.body.plan.routeId, 'east-lift-route');
+    const planId = planned.body.plan.id;
+
+    const staged = await post(`/api/plans/${planId}/stage`, {
+      expectedResourceVersion: planned.body.state.resourceVersion,
+    }, visitor.token);
+    assert.equal(staged.status, 200);
+
+    const prepared = await post(`/api/plans/${planId}/prepare-confirmation`, {}, visitor.token);
+    assert.equal(prepared.status, 200);
+    const committed = await post(`/api/plans/${planId}/commit`, {
+      confirmationId: prepared.body.confirmation.confirmationId,
+      expectedResourceVersion: prepared.body.confirmation.expectedResourceVersion,
+      accepted: true,
+      requestId: 'operator-review-race-booking',
+    }, visitor.token);
+    assert.equal(committed.status, 200);
+    const booked = committed.body.state;
+    assert.ok(booked.booking.resourceIds.includes('east-lift'));
+    assert.ok(booked.resourceVersion > reviewedBeforeBooking.resourceVersion);
+
+    // Reproduce the real race exactly: the outage POST quotes the old review,
+    // but the visitor committed before it reached the server. The refusal is
+    // not enough; compare the whole venue to prove it did not mutate first.
+    const beforeStaleRefusal = await readState(operator.token);
+    const stale = await post('/api/operator/facilities/east-lift/outage', {
+      reasonCode: 'LIFT_DOOR_FAULT',
+      requireFreshOperatorReview: true,
+      expectedVenueRevision: reviewedBeforeBooking.resourceVersion,
+      acknowledgedBookingReference: null,
+    }, operator.token);
+    assert.equal(stale.status, 409);
+    assert.equal(stale.code, 'OPERATOR_REVIEW_STALE');
+    assert.equal(stale.body.error.currentVenueRevision, booked.resourceVersion);
+    assert.deepStrictEqual(
+      await readState(operator.token),
+      beforeStaleRefusal,
+      'a stale operator review was refused after taking the booked lift offline',
+    );
+    assertSecurityHeaders(stale);
+
+    // A fresh revision alone is not consent to disrupt the booking. The exact
+    // booking reference shown in the inline confirmation is required.
+    const missingAcknowledgement = await post('/api/operator/facilities/east-lift/outage', {
+      reasonCode: 'LIFT_DOOR_FAULT',
+      requireFreshOperatorReview: true,
+      expectedVenueRevision: booked.resourceVersion,
+      acknowledgedBookingReference: null,
+    }, operator.token);
+    assert.equal(missingAcknowledgement.status, 409);
+    assert.equal(missingAcknowledgement.code, 'BOOKING_IMPACT_CONFIRMATION_REQUIRED');
+    assert.equal(missingAcknowledgement.body.error.bookingReference, booked.booking.receipt);
+    assert.equal(missingAcknowledgement.body.error.bookingStillStands, true);
+    assert.deepStrictEqual(
+      await readState(operator.token),
+      beforeStaleRefusal,
+      'a missing booking acknowledgement changed the venue despite the refusal',
+    );
+    assertSecurityHeaders(missingAcknowledgement);
+
+    const acknowledged = await post('/api/operator/facilities/east-lift/outage', {
+      reasonCode: 'LIFT_DOOR_FAULT',
+      requireFreshOperatorReview: true,
+      expectedVenueRevision: booked.resourceVersion,
+      acknowledgedBookingReference: booked.booking.receipt,
+    }, operator.token);
+    assert.equal(acknowledged.status, 200);
+    assert.equal(acknowledged.body.state.resources['east-lift'].status, 'OUT_OF_SERVICE');
+    assert.deepStrictEqual(
+      acknowledged.body.state.booking,
+      booked.booking,
+      'the acknowledged outage rewrote or cancelled the confirmed booking',
+    );
+    assert.equal(acknowledged.body.state.atomicity.reservedResourceCount, 3);
+    assert.equal(acknowledged.body.state.booking.partialReservations, 0);
+    assertSecurityHeaders(acknowledged);
+  });
+
   test('the operator routes work for both lifts, not only the east one', async () => {
     // The deployed operator page could only switch one of the two lifts. That
     // limit is not in the HTTP surface: every operator route accepts either
     // facility, so a regression here would mean the server grew the bug too.
-    const token = ctx.live.operator.token;
-    const reader = ctx.live.visitor.token;
+    // The preceding test intentionally leaves ctx.live CONFIRMED. Use a fresh
+    // READY venue so this verifies the two route shapes, not test order.
+    const reader = await openSession('visitor');
+    const operator = await openSession('operator', reader.demoId);
+    const token = operator.token;
 
     for (const facility of ['east-lift', 'garden-lift']) {
       const armed = await post(`/api/operator/facilities/${facility}/arm`, {}, token);
@@ -775,7 +868,7 @@ describe('a valid session on every route', () => {
     }
 
     // Both lifts back in service is what the visitor must be able to read.
-    const seen = await readState(reader);
+    const seen = await readState(reader.token);
     assert.equal(seen.resources['east-lift'].status, 'OPERATIONAL');
     assert.equal(seen.resources['garden-lift'].status, 'OPERATIONAL');
   });

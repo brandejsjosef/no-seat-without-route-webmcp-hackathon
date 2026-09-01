@@ -83,10 +83,18 @@ function createHarness() {
     throw new Error(`Unrouted call: ${method} ${path}`);
   }
 
-  const refresh = async () => store.snapshot();
+  let refreshCalls = 0;
+  let lastRefreshedState = null;
+  const refresh = async () => {
+    refreshCalls += 1;
+    lastRefreshedState = store.snapshot();
+    return lastRefreshedState;
+  };
   return {
     store,
     calls,
+    refreshCount: () => refreshCalls,
+    lastRefreshedState: () => lastRefreshedState,
     visitor: createVisitorTools({ api, refresh }),
     operator: createOperatorTools({ api, refresh }),
   };
@@ -777,4 +785,27 @@ test('an outage rewrites no booking, and only a booking over the reported lift l
     false,
     'the description states of every outage what is only true when the booking uses the reported lift',
   );
+});
+
+test('operator write tools repaint the page before claiming a booking-impact warning is visible', async () => {
+  const harness = createHarness();
+  const booking = await bookEastLiftRoute(harness, 'operator-write-repaint');
+
+  const beforeOutageRefreshes = harness.refreshCount();
+  const outage = JSON.parse(await toolNamed(harness.operator, 'report_facility_outage').execute({
+    facilityId: 'east-lift',
+    reasonCode: 'LIFT_DOOR_FAULT',
+  }));
+  assert.equal(harness.refreshCount() - beforeOutageRefreshes, 1, 'outage returned before repainting the page');
+  assert.equal(harness.lastRefreshedState().resources['east-lift'].status, 'OUT_OF_SERVICE');
+  assert.equal(outage.bookingImpact.bookingReference, booking.receipt);
+  assert.equal(outage.bookingImpact.pageWarningVisible, true);
+  assert.equal(outage.bookingImpact.bookingStillStands, true);
+
+  const beforeRestoreRefreshes = harness.refreshCount();
+  const restored = JSON.parse(await toolNamed(harness.operator, 'restore_facility').execute({ facilityId: 'east-lift' }));
+  assert.equal(harness.refreshCount() - beforeRestoreRefreshes, 1, 'restore returned before clearing the page warning');
+  assert.equal(harness.lastRefreshedState().resources['east-lift'].status, 'OPERATIONAL');
+  assert.equal(restored.bookingImpact, null);
+  assert.equal(harness.store.snapshot().booking.receipt, booking.receipt, 'restore deleted the confirmed booking');
 });

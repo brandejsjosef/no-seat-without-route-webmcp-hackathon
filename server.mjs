@@ -451,8 +451,62 @@ async function handleApi(request, response, url) {
     assertSameOrigin(request);
     const { store } = sessionFor(request, 'operator');
     const body = await readJson(request);
+    const facilityId = decodePathSegment(outageMatch[1]);
+
+    // The operations page first reads the venue, then asks the operator to
+    // acknowledge any confirmed booking that uses this lift. A visitor can
+    // confirm in the few milliseconds between that read and this write, so a
+    // client-only check is not enough. When the page marks a request as having
+    // gone through that review, compare the exact venue revision and booking
+    // reference immediately before the synchronous mutation. There is no
+    // await between this snapshot and setFacilityOutage(), so another request
+    // cannot commit a booking inside the compare-and-act step.
+    //
+    // This is a consistency guard for the visible operator workflow, not an
+    // authentication boundary: this synthetic demo deliberately has no real
+    // operator identity or scoped capabilities, and the WebMCP operator tool
+    // remains a distinct declared invocation path.
+    if (body.requireFreshOperatorReview === true) {
+      const before = store.snapshot();
+      const facility = before.resources[facilityId];
+
+      // Let the domain retain ownership of the canonical unknown-facility and
+      // invalid-kind refusal. The page only sends identifiers it just rendered,
+      // but direct API callers should still receive FACILITY_NOT_FOUND.
+      if (facility?.kind === 'FACILITY') {
+        if (!Number.isInteger(body.expectedVenueRevision)
+          || body.expectedVenueRevision !== before.resourceVersion) {
+          throw new DomainError(
+            'OPERATOR_REVIEW_STALE',
+            'The venue changed while this outage was being reviewed. Review the selected lift again.',
+            409,
+            {
+              expectedVenueRevision: body.expectedVenueRevision ?? null,
+              currentVenueRevision: before.resourceVersion,
+            },
+          );
+        }
+
+        const bookingUsesFacility = Boolean(
+          before.booking?.resourceIds?.includes(facilityId),
+        );
+        if (bookingUsesFacility
+          && body.acknowledgedBookingReference !== before.booking.receipt) {
+          throw new DomainError(
+            'BOOKING_IMPACT_CONFIRMATION_REQUIRED',
+            'A confirmed booking uses this lift. Review and acknowledge the booking impact before reporting the outage.',
+            409,
+            {
+              bookingReference: before.booking.receipt,
+              facilityId,
+              bookingStillStands: true,
+            },
+          );
+        }
+      }
+    }
     const state = store.setFacilityOutage(
-      decodePathSegment(outageMatch[1]),
+      facilityId,
       body.reasonCode,
       interactionContext(request, 'report_facility_outage', 'venue-operator'),
     );

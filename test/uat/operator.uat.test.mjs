@@ -668,6 +668,18 @@ describe('A confirmed booking on an operator transition', () => {
     }
     assert.equal(after.resources['east-lift'].status, 'OPERATIONAL');
   });
+
+  test('cannot arm a confirmation fault after the only booking is already confirmed', () => {
+    const store = newStore();
+    confirmBooking(store, 'uat-no-future-confirmation');
+    const before = store.snapshot();
+
+    assert.throws(
+      () => store.armOutage('east-lift'),
+      isDomainError('BOOKING_ALREADY_CONFIRMED', 409),
+    );
+    assert.deepEqual(store.snapshot(), before, 'the refused arm changed a confirmed venue');
+  });
 });
 
 describe('Both lifts out of service', () => {

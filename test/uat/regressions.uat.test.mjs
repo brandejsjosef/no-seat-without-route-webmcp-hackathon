@@ -21,6 +21,7 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { buildPlanButtonView } from '../../public/views.mjs';
 
 const read = (name) => readFile(new URL(`../../${name}`, import.meta.url), 'utf8');
 
@@ -106,13 +107,10 @@ describe('a visitor can always get back to their requirements', () => {
 describe('a disabled control says something true', () => {
   test('no phase label claims a plan is in progress after a booking', async () => {
     const app = await read('public/app.js');
-    const start = app.indexOf('elements.buildPlanButton.textContent =');
-    assert.ok(start > 0, 'the build button should have a phase-dependent label');
-    const labels = app.slice(start, app.indexOf(';', start));
-    assert.ok(
-      labels.includes("state.phase === 'CONFIRMED'"),
-      'CONFIRMED shares a label with the unbooked phases, and that label is false there',
-    );
+    assert.match(app, /buildPlanButtonView\(state\.phase/, 'the page bypasses the tested phase decision');
+    const confirmed = buildPlanButtonView('CONFIRMED').label;
+    assert.match(confirmed, /Booked/);
+    assert.doesNotMatch(confirmed, /progress/i);
     assert.ok(
       !/Plan already in progress/.test(app),
       'the label that was shown after a confirmed booking is still present',
@@ -136,13 +134,8 @@ describe('a disabled control says something true', () => {
     // weaker check would have shipped the wrong label. Availability is what a
     // reader of the label needs, so that is what is asserted.
     const app = await read('public/app.js');
-    const start = app.indexOf('elements.buildPlanButton.textContent =');
-    const labels = app.slice(start, app.indexOf(';', start));
-
-    const confirmed = labels.match(/'([^']*)'\s*\n?\s*:\s*state\.phase === 'PLAN_READY'/)
-      ?? labels.match(/state\.phase === 'CONFIRMED'\s*\n?\s*\?\s*'([^']*)'/);
-    assert.ok(confirmed, 'the CONFIRMED phase should have a label of its own');
-    const confirmedLabel = confirmed[1];
+    assert.match(app, /buildPlanButtonView\(state\.phase/, 'the page bypasses the tested phase decision');
+    const confirmedLabel = buildPlanButtonView('CONFIRMED').label;
 
     // In CONFIRMED the venue holds a booking, so `clearable` is false and the
     // Start over control is hidden. Reset demo is the only way onward, and it
@@ -164,13 +157,15 @@ describe('a disabled control says something true', () => {
   test('no label sends a visitor without an agent to wait for one', async () => {
     // A manual visitor in PLAN_READY was told "waiting for agent to prepare it".
     // There may be no agent. There was no other control on the page.
-    const app = await read('public/app.js');
-    const start = app.indexOf('elements.buildPlanButton.textContent =');
-    const labels = app.slice(start, app.indexOf(';', start));
-    assert.ok(
-      !/agent/i.test(labels),
-      'a disabled control still tells the visitor to wait for an agent',
-    );
+    const labels = [
+      'PLAN_READY',
+      'AWAITING_HUMAN_CONFIRMATION',
+      'PLAN_STALE',
+      'REPLAN_READY',
+      'NO_ALTERNATIVE',
+      'CONFIRMED',
+    ].map((phase) => buildPlanButtonView(phase).label);
+    assert.deepEqual(labels.filter((label) => /agent/i.test(label)), [], 'a disabled control still waits for an agent');
   });
 });
 

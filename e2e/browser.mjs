@@ -113,6 +113,8 @@ const KEY = Object.freeze({
   Space: { key: ' ', code: 'Space', windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32 },
   ArrowUp: { key: 'ArrowUp', code: 'ArrowUp', windowsVirtualKeyCode: 38, nativeVirtualKeyCode: 38 },
   ArrowDown: { key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40, nativeVirtualKeyCode: 40 },
+  ArrowLeft: { key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37, nativeVirtualKeyCode: 37 },
+  ArrowRight: { key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39, nativeVirtualKeyCode: 39 },
 });
 
 const results = [];
@@ -429,6 +431,7 @@ async function main() {
     if (!page) throw new Error('Chrome did not expose a page target');
 
     const consoleErrors = [];
+    const consoleWarnings = [];
     const failedResponses = [];
     // Every request the page issues, not only the ones that came back 4xx. A
     // successful request is invisible to failedResponses, so "issued no HTTP
@@ -447,6 +450,11 @@ async function main() {
       attached.on('Runtime.consoleAPICalled', (params) => {
         if (params.type === 'error') {
           consoleErrors.push({
+            scenario: currentScenario,
+            message: params.args.map((arg) => arg.value ?? arg.description ?? '').join(' '),
+          });
+        } else if (params.type === 'warning') {
+          consoleWarnings.push({
             scenario: currentScenario,
             message: params.args.map((arg) => arg.value ?? arg.description ?? '').join(' '),
           });
@@ -1212,17 +1220,84 @@ async function main() {
         )),
       JSON.stringify(chainLifts));
 
+    const radioMutationMark = requestsSent.length;
+    const radioStart = JSON.parse(await run(`
+      const radios = [...document.querySelectorAll('input[name="controlled-facility"]')];
+      const east = radios.find((radio) => radio.value === 'east-lift');
+      east.click();
+      east.focus();
+      return JSON.stringify({
+        count: radios.length,
+        selectExists: Boolean(document.querySelector('select, #facility-select')),
+        selected: document.querySelector('input[name="controlled-facility"]:checked')?.value,
+        active: document.activeElement?.value,
+        names: radios.map((radio) => document.querySelector('#' + radio.getAttribute('aria-labelledby'))?.textContent),
+        states: radios.map((radio) => document.querySelector('#' + radio.getAttribute('aria-describedby').split(' ')[1])?.textContent),
+      });`));
+    await pressKey(client, 'ArrowRight');
+    await sleep(300);
+    const radioAfterArrow = JSON.parse(await run(`
+      const selected = document.querySelector('input[name="controlled-facility"]:checked');
+      window.__nswrSelectedRadioNode = selected;
+      return JSON.stringify({
+        selected: selected?.value,
+        active: document.activeElement?.value,
+        heading: document.querySelector('#manual-control-heading').textContent,
+        arm: document.querySelector('#arm-outage-button').textContent,
+        outage: document.querySelector('#outage-now-button').textContent,
+        restore: document.querySelector('#restore-outage-button').textContent,
+      });`));
+    await sleep(1_800);
+    const radioAfterPoll = JSON.parse(await run(`
+      const selected = document.querySelector('input[name="controlled-facility"]:checked');
+      return JSON.stringify({
+        selected: selected?.value,
+        active: document.activeElement?.value,
+        sameNode: selected === window.__nswrSelectedRadioNode,
+      });`));
+    await pressKey(client, 'ArrowLeft');
+    await sleep(300);
+    const radioAfterReturn = JSON.parse(await run(`
+      return JSON.stringify({
+        selected: document.querySelector('input[name="controlled-facility"]:checked')?.value,
+        active: document.activeElement?.value,
+      });`));
+    const radioMutations = operatorMutations(requestsSent.slice(radioMutationMark));
+    check('the operator uses two directly visible native lift radios and no dropdown',
+      radioStart.count === 2
+        && radioStart.selectExists === false
+        && radioStart.selected === 'east-lift'
+        && radioStart.active === 'east-lift'
+        && radioStart.names.every(Boolean)
+        && radioStart.states.every((value) => value === 'OPERATIONAL'),
+      JSON.stringify(radioStart));
+    check('arrow keys select the other lift and repaint every control without a write request',
+      radioAfterArrow.selected === 'garden-lift'
+        && radioAfterArrow.active === 'garden-lift'
+        && [radioAfterArrow.heading, radioAfterArrow.arm, radioAfterArrow.outage, radioAfterArrow.restore]
+          .every((text) => text.includes('Garden Lift L4'))
+        && radioMutations.length === 0,
+      JSON.stringify({ radioAfterArrow, radioMutations }));
+    check('the one-second live poll preserves the selected radio node and keyboard focus',
+      radioAfterPoll.selected === 'garden-lift'
+        && radioAfterPoll.active === 'garden-lift'
+        && radioAfterPoll.sameNode === true,
+      JSON.stringify(radioAfterPoll));
+    check('the keyboard can return to East without losing the checked state',
+      radioAfterReturn.selected === 'east-lift' && radioAfterReturn.active === 'east-lift',
+      JSON.stringify(radioAfterReturn));
+
     for (const lift of chainLifts) {
       const namesIt = (text) => String(text).includes(lift.label);
       const namesTheOther = (text) => String(text).includes(lift.otherToken);
 
       const opened = JSON.parse(await run(`
-        const select = document.querySelector('#facility-select');
-        select.value = ${JSON.stringify(lift.id)};
-        select.dispatchEvent(new Event('change', { bubbles: true }));
+        const radio = [...document.querySelectorAll('input[name="controlled-facility"]')]
+          .find((input) => input.value === ${JSON.stringify(lift.id)});
+        radio.click();
         await sleep(400);
         return JSON.stringify({
-          selected: select.value,
+          selected: document.querySelector('input[name="controlled-facility"]:checked')?.value,
           arm: document.querySelector('#arm-outage-button').textContent,
           offline: document.querySelector('#outage-now-button').textContent,
           restore: document.querySelector('#restore-outage-button').textContent,
@@ -1230,7 +1305,7 @@ async function main() {
           restoreDisabled: document.querySelector('#restore-outage-button').disabled,
           armedHidden: document.querySelector('#armed-state').hidden,
         });`));
-      check(`${lift.label}: the selector and all three controls name the lift they act on`,
+      check(`${lift.label}: the visible radio card and all three controls name the lift they act on`,
         opened.selected === lift.id
           && [opened.arm, opened.offline, opened.restore].every((text) => namesIt(text) && !namesTheOther(text))
           && opened.offlineDisabled === false
@@ -1282,22 +1357,27 @@ async function main() {
         JSON.stringify(armedStep));
 
       const pendingStep = JSON.parse(await run(`
-        const select = document.querySelector('#facility-select');
         const banner = document.querySelector('#armed-state');
         const armButton = document.querySelector('#arm-outage-button');
-        select.value = ${JSON.stringify(lift.otherId)};
-        select.dispatchEvent(new Event('change', { bubbles: true }));
+        const choose = (id) => [...document.querySelectorAll('input[name="controlled-facility"]')]
+          .find((input) => input.value === id).click();
+        choose(${JSON.stringify(lift.otherId)});
         await sleep(400);
-        const away = { hidden: banner.hidden, arm: armButton.textContent };
-        select.value = ${JSON.stringify(lift.id)};
-        select.dispatchEvent(new Event('change', { bubbles: true }));
+        const away = {
+          hidden: banner.hidden,
+          arm: armButton.textContent,
+          selected: document.querySelector('input[name="controlled-facility"]:checked')?.value,
+          armedCardBadgeVisible: !document.querySelector('#' + ${JSON.stringify(lift.id)} + '-fault').hidden,
+          otherCardBadgeVisible: !document.querySelector('#' + ${JSON.stringify(lift.otherId)} + '-fault').hidden,
+        };
+        choose(${JSON.stringify(lift.id)});
         await sleep(400);
         return JSON.stringify({ away, back: { hidden: banner.hidden, arm: armButton.textContent } });`));
-      // This was written the other way round - that moving the selector away
+      // This was written the other way round - that moving the selection away
       // HIDES the banner and re-offers the arm button. That is the defect, not
       // the contract. A pending fault is venue-wide state: when the banner
       // followed the selection, an armed Garden fault vanished the moment the
-      // selector moved to East, the page offered to arm East as though nothing
+      // selected card moved to East, the page offered to arm East as though nothing
       // were pending, and that second arm silently replaced the first.
       //
       // Two repairs landed in the same pass from different directions and
@@ -1312,7 +1392,10 @@ async function main() {
           && pendingStep.back.hidden === false
           && namesIt(pendingStep.away.arm)
           && !namesTheOther(pendingStep.away.arm)
-          && namesIt(pendingStep.back.arm),
+          && namesIt(pendingStep.back.arm)
+          && pendingStep.away.selected === lift.otherId
+          && pendingStep.away.armedCardBadgeVisible === true
+          && pendingStep.away.otherCardBadgeVisible === false,
         JSON.stringify(pendingStep));
 
       const offlineMark = requestsSent.length;
@@ -1432,6 +1515,573 @@ async function main() {
     const role = JSON.parse(roleCheck);
     check('the server refuses a visitor token on an operations endpoint', role.status === 403, JSON.stringify(role));
     check('the refusal names the role boundary', role.body?.error?.code === 'ROLE_FORBIDDEN', JSON.stringify(role.body));
+
+    scenario('confirmed bookings require an explicit operator acknowledgement before their lift is stopped');
+    await evaluate(client, `document.querySelector('#operator-reset-button').click(); return true;`);
+    await sleep(2_600);
+    // Freeze only the operator's state reads so its in-memory UI snapshot stays
+    // at READY while the visitor confirms. The next outage click must perform
+    // its own fresh read instead of trusting the one-second poll.
+    await evaluate(client, `
+      window.__operatorQaFetch = window.fetch;
+      window.fetch = (...args) => {
+        const input = args[0];
+        const raw = typeof input === 'string' ? input : input?.url;
+        if (new URL(raw, location.href).pathname === '/api/state') return new Promise(() => {});
+        return window.__operatorQaFetch(...args);
+      };
+      return true;`);
+    const visitorRun = (body) => evaluate(visitorClient, `${PAGE}\n${body}`);
+    // A real visitor sees this tab in the foreground. Chrome deliberately does
+    // not perform visual scrolling for a background target, which would turn a
+    // viewport assertion into a test-harness artefact rather than a UX check.
+    await visitorClient.send('Page.bringToFront');
+    const bookedForImpact = JSON.parse(await visitorRun(`
+      const waitFor = async (test, ms = 10000) => {
+        const deadline = Date.now() + ms;
+        while (Date.now() < deadline) { if (await test()) return true; await sleep(80); }
+        return false;
+      };
+      await waitFor(async () => (await call('get_access_bundle_status', {})).phase === 'READY');
+      document.querySelector('#requirements-form').reset();
+      document.querySelector('#build-plan-button').click();
+      const staged = await waitFor(() => !document.querySelector('#decision-section').hidden);
+      const positioned = await waitFor(() => {
+        const rect = document.querySelector('#decision-section').getBoundingClientRect();
+        return document.activeElement?.id === 'decision-heading'
+          && rect.top < window.innerHeight
+          && rect.bottom > 0;
+      });
+      const plannedRoute = document.querySelector('#route-steps').textContent.replace(/\\s+/g, ' ').trim();
+      const decisionRect = document.querySelector('#decision-section').getBoundingClientRect();
+      const decisionPlacement = {
+        positioned,
+        focused: document.activeElement?.id,
+        top: decisionRect.top,
+        bottom: decisionRect.bottom,
+        viewportHeight: window.innerHeight,
+      };
+      document.querySelector('#confirm-button').click();
+      const confirmed = await waitFor(() => !document.querySelector('#receipt-section').hidden);
+      const status = await call('get_access_bundle_status', {});
+      const event = await call('get_event_access_state', {});
+      return JSON.stringify({
+        staged,
+        confirmed,
+        plannedRoute,
+        status,
+        event,
+        decisionPlacement,
+        receipt: document.querySelector('#receipt-number').textContent,
+      });`));
+    check('the shared visitor page has a confirmed East booking before the operator changes anything',
+      bookedForImpact.staged === true
+        && bookedForImpact.confirmed === true
+        && bookedForImpact.status.phase === 'CONFIRMED'
+        && bookedForImpact.plannedRoute.includes('East Lift L2')
+        && bookedForImpact.decisionPlacement.positioned === true
+        && bookedForImpact.decisionPlacement.focused === 'decision-heading'
+        && bookedForImpact.decisionPlacement.top < bookedForImpact.decisionPlacement.viewportHeight
+        && bookedForImpact.decisionPlacement.bottom > 0
+        && /^NSWR-\d{5}$/.test(bookedForImpact.receipt)
+        && bookedForImpact.event.reservedResourceCount === 3,
+      JSON.stringify(bookedForImpact));
+    await client.send('Page.bringToFront');
+
+    const staleOperatorMark = requestsSent.length;
+    const staleOperatorGuard = JSON.parse(await run(`
+      const waitFor = async (test, ms = 10000) => {
+        const deadline = Date.now() + ms;
+        while (Date.now() < deadline) { if (await test()) return true; await sleep(80); }
+        return false;
+      };
+      window.fetch = window.__operatorQaFetch;
+      delete window.__operatorQaFetch;
+      const staleBeforeClick = document.querySelector('#proof-phase').textContent;
+      document.querySelector('#facility-east').click();
+      document.querySelector('#outage-now-button').click();
+      const reviewOpened = await waitFor(() => !document.querySelector('#manual-impact-confirmation').hidden);
+      const freshAfterClick = document.querySelector('#proof-phase').textContent;
+      const liftState = (await call('get_facility_status', {})).facilities
+        .find((facility) => facility.id === 'east-lift')?.status;
+      document.querySelector('#cancel-outage-button').click();
+      return JSON.stringify({
+        staleBeforeClick,
+        freshAfterClick,
+        reviewOpened,
+        liftState,
+        focused: document.activeElement?.id,
+      });`));
+    const staleOperatorMutations = operatorMutations(requestsSent.slice(staleOperatorMark));
+    check('a booking confirmed between operator polls cannot bypass the inline impact review',
+      staleOperatorGuard.staleBeforeClick === 'READY'
+        && staleOperatorGuard.freshAfterClick === 'CONFIRMED'
+        && staleOperatorGuard.reviewOpened === true
+        && staleOperatorGuard.liftState === 'OPERATIONAL'
+        && staleOperatorGuard.focused === 'outage-now-button'
+        && staleOperatorMutations.length === 0,
+      JSON.stringify({ staleOperatorGuard, staleOperatorMutations }));
+
+    const unrelatedBefore = JSON.parse(await run(`
+      document.querySelector('#facility-garden').click();
+      await sleep(250);
+      return JSON.stringify({
+        noteHidden: document.querySelector('#manual-impact-note').hidden,
+        confirmationHidden: document.querySelector('#manual-impact-confirmation').hidden,
+        outageLabel: document.querySelector('#outage-now-button').textContent,
+        globalImpactHidden: document.querySelector('#booking-impact').hidden,
+        armDisabled: document.querySelector('#arm-outage-button').disabled,
+        armLabel: document.querySelector('#arm-outage-button').textContent,
+        raceIntro: document.querySelector('#race-intro').textContent,
+      });`));
+    check('selecting the unbooked Garden lift raises no false booking-impact warning',
+      unrelatedBefore.noteHidden === true
+        && unrelatedBefore.confirmationHidden === true
+        && unrelatedBefore.globalImpactHidden === true
+        && unrelatedBefore.armDisabled === true
+        && /Safe-failure test complete/.test(unrelatedBefore.armLabel)
+        && /Reset the demo/.test(unrelatedBefore.raceIntro)
+        && !/before the server commits/.test(unrelatedBefore.raceIntro)
+        && !/impact|affect|review/i.test(unrelatedBefore.outageLabel),
+      JSON.stringify(unrelatedBefore));
+
+    const unrelatedOutage = JSON.parse(await run(`
+      const waitFor = async (test, ms = 10000) => {
+        const deadline = Date.now() + ms;
+        while (Date.now() < deadline) { if (await test()) return true; await sleep(80); }
+        return false;
+      };
+      document.querySelector('#outage-now-button').click();
+      await waitFor(() => document.querySelector('#garden-lift-state').textContent === 'OUT OF SERVICE');
+      const down = await call('get_facility_status', {});
+      const hiddenAfterPoll = document.querySelector('#booking-impact').hidden;
+      document.querySelector('#restore-outage-button').click();
+      await waitFor(() => document.querySelector('#garden-lift-state').textContent === 'OPERATIONAL');
+      const restored = await call('get_facility_status', {});
+      return JSON.stringify({ down, hiddenAfterPoll, restored });`));
+    check('taking only the unbooked Garden lift offline leaves the East booking intact and raises no impact',
+      unrelatedOutage.down.facilities.find((facility) => facility.id === 'garden-lift')?.status === 'OUT_OF_SERVICE'
+        && unrelatedOutage.down.bookingImpact === null
+        && unrelatedOutage.hiddenAfterPoll === true
+        && unrelatedOutage.restored.facilities.every((facility) => facility.status === 'OPERATIONAL'),
+      JSON.stringify(unrelatedOutage));
+
+    const impactReviewMark = requestsSent.length;
+    const impactReview = JSON.parse(await run(`
+      document.querySelector('#facility-east').click();
+      await sleep(250);
+      const before = {
+        noteHidden: document.querySelector('#manual-impact-note').hidden,
+        note: document.querySelector('#manual-impact-note').textContent,
+        outageLabel: document.querySelector('#outage-now-button').textContent,
+        confirmationHidden: document.querySelector('#manual-impact-confirmation').hidden,
+      };
+      document.querySelector('#outage-now-button').click();
+      await sleep(250);
+      const review = {
+        confirmationHidden: document.querySelector('#manual-impact-confirmation').hidden,
+        heading: document.querySelector('#manual-impact-confirmation-heading').textContent,
+        message: document.querySelector('#manual-impact-confirmation-message').textContent,
+        confirm: document.querySelector('#confirm-outage-button').textContent,
+        cancel: document.querySelector('#cancel-outage-button').textContent,
+        expanded: document.querySelector('#outage-now-button').getAttribute('aria-expanded'),
+        focused: document.activeElement?.id,
+      };
+      const stillUp = await call('get_facility_status', {});
+      document.querySelector('#cancel-outage-button').click();
+      await sleep(100);
+      const cancelled = {
+        confirmationHidden: document.querySelector('#manual-impact-confirmation').hidden,
+        expanded: document.querySelector('#outage-now-button').getAttribute('aria-expanded'),
+        focused: document.activeElement?.id,
+      };
+      return JSON.stringify({ before, review, stillUp, cancelled });`));
+    const impactReviewMutations = operatorMutations(requestsSent.slice(impactReviewMark));
+    check('the booked lift is clearly marked as a booking risk before any action',
+      impactReview.before.noteHidden === false
+        && impactReview.before.note.includes(bookedForImpact.receipt)
+        && impactReview.before.note.includes('will disrupt the route')
+        && impactReview.before.note.includes('booking stays active')
+        && /Review impact before taking East Lift L2 offline/.test(impactReview.before.outageLabel),
+      JSON.stringify(impactReview.before));
+    check('the first click opens an inline acknowledgement and performs no outage request',
+      impactReview.review.confirmationHidden === false
+        && impactReview.review.heading === 'This will break a confirmed route'
+        && impactReview.review.message.includes(bookedForImpact.receipt)
+        && impactReview.review.message.includes('no email, SMS, cancellation or reroute')
+        && impactReview.review.confirm.includes('East Lift L2')
+        && impactReview.review.cancel.includes('East Lift L2')
+        && impactReview.review.expanded === 'true'
+        && impactReview.review.focused === 'manual-impact-confirmation-heading'
+        && impactReview.stillUp.facilities.find((facility) => facility.id === 'east-lift')?.status === 'OPERATIONAL'
+        && impactReviewMutations.length === 0,
+      JSON.stringify({ impactReview, impactReviewMutations }));
+    check('cancelling the acknowledgement keeps the lift in service and returns focus to the initiating control',
+      impactReview.cancelled.confirmationHidden === true
+        && impactReview.cancelled.expanded === 'false'
+        && impactReview.cancelled.focused === 'outage-now-button',
+      JSON.stringify(impactReview.cancelled));
+
+    const visitorFocusBeforeImpact = await visitorRun(`
+      document.querySelector('#copy-prompt-button').focus();
+      return document.activeElement?.id;`);
+    const bookedOutageMark = requestsSent.length;
+    const bookedOutage = JSON.parse(await run(`
+      const waitFor = async (test, ms = 10000) => {
+        const deadline = Date.now() + ms;
+        while (Date.now() < deadline) { if (await test()) return true; await sleep(80); }
+        return false;
+      };
+      document.querySelector('#outage-now-button').click();
+      const reviewReady = await waitFor(() => (
+        !document.querySelector('#manual-impact-confirmation').hidden
+          && document.querySelector('#outage-now-button').getAttribute('aria-expanded') === 'true'
+          && !document.querySelector('#confirm-outage-button').disabled
+          && document.activeElement?.id === 'manual-impact-confirmation-heading'
+      ));
+      document.querySelector('#confirm-outage-button').click();
+      const observed = await waitFor(() => (
+        document.querySelector('#east-lift-state').textContent === 'OUT OF SERVICE'
+          && !document.querySelector('#booking-impact').hidden
+      ));
+      const first = {
+        observed,
+        heading: document.querySelector('#booking-impact-heading').textContent,
+        message: document.querySelector('#booking-impact-message').textContent,
+        proof: document.querySelector('#booking-impact-proof').textContent,
+        atomic: {
+          bookings: document.querySelector('#proof-bookings').textContent,
+          reserved: document.querySelector('#proof-resources').textContent,
+          phase: document.querySelector('#proof-phase').textContent,
+        },
+      };
+      const status = await call('get_facility_status', {});
+      await sleep(1800);
+      const later = {
+        hidden: document.querySelector('#booking-impact').hidden,
+        heading: document.querySelector('#booking-impact-heading').textContent,
+        message: document.querySelector('#booking-impact-message').textContent,
+        proof: document.querySelector('#booking-impact-proof').textContent,
+      };
+      return JSON.stringify({ reviewReady, first, status, later });`));
+    const bookedOutageMutations = operatorMutations(requestsSent.slice(bookedOutageMark));
+    check('only the explicit second-step acknowledgement takes the booked East lift offline',
+      bookedOutage.reviewReady === true
+        && bookedOutageMutations.join(' | ') === 'POST /api/operator/facilities/east-lift/outage'
+        && bookedOutage.status.facilities.find((facility) => facility.id === 'east-lift')?.status === 'OUT_OF_SERVICE',
+      JSON.stringify({ bookedOutageMutations, status: bookedOutage.status }));
+    check('the operator warning names the booking, the failed lift and the actions this demo did not take',
+      bookedOutage.first.observed === true
+        && bookedOutage.first.heading === 'A confirmed booking has lost its working route'
+        && bookedOutage.first.message.includes(bookedForImpact.receipt)
+        && bookedOutage.first.message.includes('East Lift L2')
+        && bookedOutage.first.proof.includes('sends no email, SMS or staff workflow')
+        && bookedOutage.first.proof.includes('performs no cancellation or reroute')
+        && bookedOutage.first.atomic.bookings === '1'
+        && bookedOutage.first.atomic.reserved === '3'
+        && bookedOutage.first.atomic.phase === 'CONFIRMED'
+        && bookedOutage.status.bookingImpact.bookingStillStands === true
+        && bookedOutage.status.bookingImpact.automaticCancellation === false
+        && bookedOutage.status.bookingImpact.automaticReroute === false
+        && bookedOutage.status.bookingImpact.pageWarningVisible === true
+        && bookedOutage.status.bookingImpact.outOfBandNotification === false,
+      JSON.stringify(bookedOutage));
+    check('the confirmed-route warning survives an ordinary operator poll unchanged',
+      bookedOutage.later.hidden === false
+        && bookedOutage.later.heading === bookedOutage.first.heading
+        && bookedOutage.later.message === bookedOutage.first.message
+        && bookedOutage.later.proof === bookedOutage.first.proof,
+      JSON.stringify({ first: bookedOutage.first, later: bookedOutage.later }));
+
+    const visitorImpact = JSON.parse(await visitorRun(`
+      const deadline = Date.now() + 10000;
+      while (Date.now() < deadline && document.querySelector('#booking-impact-alert').hidden) await sleep(80);
+      const status = await call('get_access_bundle_status', {});
+      const event = await call('get_event_access_state', {});
+      return JSON.stringify({
+        hidden: document.querySelector('#booking-impact-alert').hidden,
+        heading: document.querySelector('#booking-impact-alert-heading').textContent,
+        message: document.querySelector('#booking-impact-alert-message').textContent,
+        proof: document.querySelector('#booking-impact-alert-proof').textContent,
+        receiptVisible: !document.querySelector('#receipt-section').hidden,
+        receipt: document.querySelector('#receipt-number').textContent,
+        focused: document.activeElement?.id,
+        status,
+        event,
+      });`));
+    check('the visitor keeps the receipt but gets a persistent visible warning for the failed booked lift',
+      visitorImpact.hidden === false
+        && visitorImpact.heading === 'Your confirmed route has been disrupted'
+        && visitorImpact.message.includes(bookedForImpact.receipt)
+        && visitorImpact.message.includes('East Lift L2')
+        && visitorImpact.proof.includes('sends no email, SMS or staff workflow')
+        && visitorImpact.proof.includes('performs no cancellation or reroute')
+        && visitorImpact.receiptVisible === true
+        && visitorImpact.receipt === bookedForImpact.receipt
+        && visitorFocusBeforeImpact === 'copy-prompt-button'
+        && visitorImpact.focused === 'copy-prompt-button'
+        && visitorImpact.status.phase === 'CONFIRMED'
+        && visitorImpact.status.booking.partialReservations === 0
+        && visitorImpact.event.reservedResourceCount === 3,
+      JSON.stringify(visitorImpact));
+
+    const bothOffline = JSON.parse(await run(`
+      const waitFor = async (test, ms = 10000) => {
+        const deadline = Date.now() + ms;
+        while (Date.now() < deadline) { if (await test()) return true; await sleep(80); }
+        return false;
+      };
+      document.querySelector('#facility-garden').click();
+      document.querySelector('#outage-now-button').click();
+      await waitFor(() => document.querySelector('#garden-lift-state').textContent === 'OUT OF SERVICE');
+      const status = await call('get_facility_status', {});
+      return JSON.stringify({
+        status,
+        heading: document.querySelector('#booking-impact-heading').textContent,
+        message: document.querySelector('#booking-impact-message').textContent,
+        hidden: document.querySelector('#booking-impact').hidden,
+      });`));
+    check('with both lifts offline the operator shows venue-wide loss but attributes impact only to the booked lift',
+      bothOffline.hidden === false
+        && bothOffline.heading === 'No step-free lift route is currently available'
+        && bothOffline.message.includes('Both lifts are out of service')
+        && bothOffline.status.facilities.every((facility) => facility.status === 'OUT_OF_SERVICE')
+        && bothOffline.status.bookingImpact.affectedFacilities.join() === 'East Lift L2',
+      JSON.stringify(bothOffline));
+
+    await client.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await visitorClient.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await sleep(150);
+    const impactMobile = await evaluate(client, `
+      const warning = document.querySelector('#booking-impact').getBoundingClientRect();
+      return {
+        hidden: document.querySelector('#booking-impact').hidden,
+        warningWidth: warning.width,
+        viewportWidth: document.documentElement.clientWidth,
+        contentWidth: document.documentElement.scrollWidth,
+      };`);
+    const visitorImpactMobile = await evaluate(visitorClient, `
+      const warning = document.querySelector('#booking-impact-alert').getBoundingClientRect();
+      return {
+        hidden: document.querySelector('#booking-impact-alert').hidden,
+        warningWidth: warning.width,
+        viewportWidth: document.documentElement.clientWidth,
+        contentWidth: document.documentElement.scrollWidth,
+      };`);
+    check('operator and visitor impact warnings fit a 390 px screen without horizontal overflow',
+      impactMobile.hidden === false
+        && visitorImpactMobile.hidden === false
+        && impactMobile.warningWidth > 0
+        && visitorImpactMobile.warningWidth > 0
+        && impactMobile.contentWidth <= impactMobile.viewportWidth
+        && visitorImpactMobile.contentWidth <= visitorImpactMobile.viewportWidth,
+      JSON.stringify({ operator: impactMobile, visitor: visitorImpactMobile }));
+    await client.send('Emulation.clearDeviceMetricsOverride');
+    await visitorClient.send('Emulation.clearDeviceMetricsOverride');
+
+    const recoveredBookingImpact = JSON.parse(await run(`
+      const waitFor = async (test, ms = 10000) => {
+        const deadline = Date.now() + ms;
+        while (Date.now() < deadline) { if (await test()) return true; await sleep(80); }
+        return false;
+      };
+      document.querySelector('#facility-east').click();
+      document.querySelector('#restore-outage-button').click();
+      await waitFor(() => document.querySelector('#east-lift-state').textContent === 'OPERATIONAL');
+      return JSON.stringify({ status: await call('get_facility_status', {}) });`));
+    const visitorAfterRestore = JSON.parse(await visitorRun(`
+      const deadline = Date.now() + 10000;
+      while (Date.now() < deadline && !document.querySelector('#booking-impact-alert').hidden) await sleep(80);
+      return JSON.stringify({
+        impactHidden: document.querySelector('#booking-impact-alert').hidden,
+        a11yAlert: document.querySelector('#a11y-alert').textContent,
+        receiptVisible: !document.querySelector('#receipt-section').hidden,
+        status: await call('get_access_bundle_status', {}),
+      });`));
+    check('restoring the booked lift clears both the visible and screen-reader warning without deleting the booking',
+      recoveredBookingImpact.status.facilities.find((facility) => facility.id === 'east-lift')?.status === 'OPERATIONAL'
+        && recoveredBookingImpact.status.bookingImpact === null
+        && visitorAfterRestore.impactHidden === true
+        && visitorAfterRestore.a11yAlert === ''
+        && visitorAfterRestore.receiptVisible === true
+        && visitorAfterRestore.status.phase === 'CONFIRMED',
+      JSON.stringify({ operator: recoveredBookingImpact, visitor: visitorAfterRestore }));
+
+    await evaluate(client, `document.querySelector('#operator-reset-button').click(); return true;`);
+    const visitorAfterImpactReset = JSON.parse(await visitorRun(`
+      const deadline = Date.now() + 10000;
+      let status = await call('get_access_bundle_status', {});
+      while (Date.now() < deadline && status.phase !== 'READY') {
+        await sleep(80);
+        status = await call('get_access_bundle_status', {});
+      }
+      await sleep(1200);
+      return JSON.stringify({
+        status,
+        impactHidden: document.querySelector('#booking-impact-alert').hidden,
+        receiptHidden: document.querySelector('#receipt-section').hidden,
+        a11yAlert: document.querySelector('#a11y-alert').textContent,
+      });`));
+    check('reset removes the old receipt and leaves no stale visual or screen-reader disruption warning',
+      visitorAfterImpactReset.status.phase === 'READY'
+        && visitorAfterImpactReset.impactHidden === true
+        && visitorAfterImpactReset.receiptHidden === true
+        && visitorAfterImpactReset.a11yAlert === '',
+      JSON.stringify(visitorAfterImpactReset));
+
+    scenario('the operator proof and controls remain visible and usable at judge viewports');
+    await evaluate(client, `document.querySelector('#operator-reset-button').click(); return true;`);
+    await sleep(2_600);
+    await evaluate(visitorClient, `document.querySelector('#requirements-form').requestSubmit(); return true;`);
+    check('the responsive operator check reaches the long awaiting-confirmation phase',
+      await waitForPage(visitorClient, `!document.querySelector('#decision-section').hidden`),
+      'the visitor never staged a plan');
+    await sleep(1_200);
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 1920,
+      height: 889,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await sleep(100);
+    await evaluate(client, `
+      document.documentElement.style.scrollBehavior = 'auto';
+      window.scrollTo(0, 0);
+      return true;
+    `);
+    await sleep(50);
+    const operatorDesktopLayout = await evaluate(client, `
+      const proof = document.querySelector('.operator-overview-proof').getBoundingClientRect();
+      const status = document.querySelector('#operator-webmcp-status').textContent.replace(/\\s+/g, ' ').trim();
+      return {
+        viewportWidth: document.documentElement.clientWidth,
+        contentWidth: document.documentElement.scrollWidth,
+        proofTop: proof.top,
+        proofBottom: proof.bottom,
+        proofDocumentTop: proof.top + window.scrollY,
+        proofDocumentBottom: proof.bottom + window.scrollY,
+        status,
+      };
+    `);
+    check('the 1920×889 operator layout has no horizontal overflow',
+      operatorDesktopLayout.contentWidth <= operatorDesktopLayout.viewportWidth,
+      JSON.stringify(operatorDesktopLayout));
+    check('the no-half-bookings proof is entirely inside the first desktop viewport',
+      operatorDesktopLayout.proofDocumentTop >= 0 && operatorDesktopLayout.proofDocumentBottom <= 889,
+      JSON.stringify(operatorDesktopLayout));
+    check('the operator badge visibly names WebMCP before its live counts',
+      operatorDesktopLayout.status.startsWith('WebMCP ·'),
+      operatorDesktopLayout.status);
+
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 390,
+      height: 844,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    await sleep(100);
+    await evaluate(client, `window.scrollTo(0, 0); return true;`);
+    await sleep(50);
+    const operatorMobileLayout = await evaluate(client, `
+      const rect = (selector) => {
+        const value = document.querySelector(selector).getBoundingClientRect();
+        return { left: value.left, right: value.right, top: value.top, bottom: value.bottom, width: value.width, height: value.height };
+      };
+      const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+      const brand = rect('.operator-brand');
+      const actions = rect('.operator-header-actions');
+      const mark = document.querySelector('.operator-brand .wordmark-mark');
+      const markStyle = getComputedStyle(mark);
+      const facilityCards = ['#east-lift-card', '#garden-lift-card'].map((selector) => rect(selector));
+      const buttons = ['#arm-outage-button', '#outage-now-button', '#restore-outage-button']
+        .map((selector) => rect(selector));
+      const log = document.querySelector('#operator-log');
+      const empty = document.createElement('li');
+      empty.className = 'audit-empty';
+      empty.textContent = 'Waiting for server events.';
+      log.append(empty);
+      const parseRgb = (value) => (value.match(/\\d+(?:\\.\\d+)?/g) || []).slice(0, 3).map(Number);
+      const luminance = (value) => {
+        const channels = parseRgb(value).map((part) => part / 255).map((part) => part <= 0.04045 ? part / 12.92 : ((part + 0.055) / 1.055) ** 2.4);
+        return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+      };
+      const foreground = getComputedStyle(empty).color;
+      const background = getComputedStyle(log).backgroundColor;
+      const [lighter, darker] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+      const result = {
+        viewportWidth: document.documentElement.clientWidth,
+        contentWidth: document.documentElement.scrollWidth,
+        headerOverlap: overlaps(brand, actions),
+        brand,
+        actions,
+        markDisplay: markStyle.display,
+        markPlaceItems: markStyle.placeItems,
+        facilityCards,
+        buttons,
+        contrast: (lighter + 0.05) / (darker + 0.05),
+        foreground,
+        background,
+        phase: document.querySelector('#proof-phase').textContent.trim(),
+        phaseBox: {
+          clientWidth: document.querySelector('#proof-phase').clientWidth,
+          scrollWidth: document.querySelector('#proof-phase').scrollWidth,
+        },
+      };
+      empty.remove();
+      return result;
+    `);
+    check('the 390×844 operator layout has no horizontal overflow',
+      operatorMobileLayout.contentWidth <= operatorMobileLayout.viewportWidth,
+      JSON.stringify(operatorMobileLayout));
+    check('the mobile operator brand and toolbar do not overlap',
+      operatorMobileLayout.headerOverlap === false,
+      JSON.stringify({ brand: operatorMobileLayout.brand, actions: operatorMobileLayout.actions }));
+    check('the long internal phase is presented as a compact operator label',
+      operatorMobileLayout.phase === 'AWAITING VISITOR'
+        && operatorMobileLayout.phaseBox.scrollWidth <= operatorMobileLayout.phaseBox.clientWidth + 1,
+      JSON.stringify({ phase: operatorMobileLayout.phase, box: operatorMobileLayout.phaseBox }));
+    check('the RH mark remains centred by its rendered layout',
+      operatorMobileLayout.markDisplay === 'grid' && operatorMobileLayout.markPlaceItems === 'center',
+      JSON.stringify(operatorMobileLayout));
+    check('both mobile lift cards remain visible and at least 44 CSS pixels tall',
+      operatorMobileLayout.facilityCards.length === 2
+        && operatorMobileLayout.facilityCards.every(({ height }) => height >= 44),
+      JSON.stringify(operatorMobileLayout.facilityCards));
+    check('all three mobile lift controls are at least 44 CSS pixels tall',
+      operatorMobileLayout.buttons.every(({ height }) => height >= 44),
+      JSON.stringify(operatorMobileLayout.buttons));
+    check('the empty operator log meets WCAG AA normal-text contrast',
+      operatorMobileLayout.contrast >= 4.5,
+      JSON.stringify(operatorMobileLayout));
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 320,
+      height: 568,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    const operatorTextZoom = await evaluate(client, `
+      document.documentElement.style.fontSize = '200%';
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const viewportWidth = document.documentElement.clientWidth;
+      const result = {
+        viewportWidth,
+        contentWidth: document.documentElement.scrollWidth,
+        offenders: [...document.querySelectorAll('body *')]
+          .filter((element) => element.getClientRects().length > 0)
+          .map((element) => ({
+            selector: element.id ? '#' + element.id : element.className ? '.' + String(element.className).trim().replace(/\\s+/g, '.') : element.tagName,
+            right: Math.round(element.getBoundingClientRect().right),
+          }))
+          .filter(({ right }) => right > viewportWidth + 1)
+          .slice(0, 12),
+      };
+      document.documentElement.style.removeProperty('font-size');
+      return result;
+    `);
+    check('the 320 px operator reflows without horizontal scrolling at 200% text size',
+      operatorTextZoom.contentWidth <= operatorTextZoom.viewportWidth,
+      JSON.stringify(operatorTextZoom));
+    await client.send('Emulation.clearDeviceMetricsOverride');
 
     scenario('a shared link puts both pages on the same venue');
     const shared = await run(`
@@ -1590,23 +2240,83 @@ async function main() {
     check('the skip-link target can take focus', acc.mainFocusable === '-1', String(acc.mainFocusable));
 
     scenario('responsive layouts have usable touch targets and no overflow');
+    await freshVenue();
     const responsive = [];
-    for (const width of [320, 375, 768, 1440]) {
+    const viewportCases = [
+      { width: 320, height: 568 },
+      { width: 360, height: 800 },
+      { width: 375, height: 667 },
+      { width: 390, height: 844 },
+      { width: 412, height: 915 },
+      { width: 768, height: 1024 },
+      { width: 568, height: 320 },
+      { width: 667, height: 375 },
+      { width: 844, height: 390 },
+      { width: 915, height: 412 },
+      { width: 1440, height: 800 },
+      { width: 1920, height: 889 },
+    ];
+    for (const { width, height } of viewportCases) {
       await client.send('Emulation.setDeviceMetricsOverride', {
         width,
-        height: 800,
+        height,
         deviceScaleFactor: 1,
         mobile: width <= 768,
       });
       await sleep(100);
       responsive.push(await evaluate(client, `
-        const copy = document.querySelector('#copy-prompt-button').getBoundingClientRect();
+        window.scrollTo(0, 0);
+        const rect = (selector) => {
+          const value = document.querySelector(selector).getBoundingClientRect();
+          return { left: value.left, right: value.right, top: value.top, bottom: value.bottom, width: value.width, height: value.height };
+        };
+        const copy = rect('#copy-prompt-button');
+        const brand = rect('.wordmark');
+        const summary = rect('.tool-disclosure summary');
+        const fault = rect('#fault-button');
+        const share = rect('#share-link-button');
+        const quickStart = rect('.quick-start');
+        const quickHeading = rect('#agent-heading');
+        const hero = rect('.hero');
+        const booking = rect('.booking-section');
+        const assurance = rect('#assurance-empty');
+        const webmcpBadge = document.querySelector('#webmcp-status');
+        const protocolFields = [...document.querySelectorAll('.protocol-field')].map((field) => {
+          const value = field.getBoundingClientRect();
+          return { left: value.left, top: value.top };
+        });
+        const focusables = [...document.querySelectorAll('a[href], button, input, select, summary')]
+          .filter((element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden');
+        const position = (selector) => focusables.indexOf(document.querySelector(selector));
         return {
           width: ${width},
+          height: ${height},
           viewportWidth: document.documentElement.clientWidth,
           contentWidth: document.documentElement.scrollWidth,
-          copyWidth: copy.width,
-          copyHeight: copy.height,
+          pageHeight: document.documentElement.scrollHeight,
+          copy,
+          brand,
+          summary,
+          fault,
+          share,
+          quickStart,
+          quickHeading,
+          hero,
+          booking,
+          assurance,
+          webmcpBadge: {
+            clientWidth: webmcpBadge.clientWidth,
+            scrollWidth: webmcpBadge.scrollWidth,
+          },
+          protocolFields,
+          webmcp: document.querySelector('#webmcp-status').textContent.replace(/\\s+/g, ' ').trim(),
+          disclosureOpen: document.querySelector('.tool-disclosure').open,
+          order: {
+            prompt: position('#copy-prompt-button'),
+            firstRequirement: position('#requirements-form input'),
+            fault: position('#fault-button'),
+            share: position('#share-link-button'),
+          },
         };
       `));
     }
@@ -1614,11 +2324,180 @@ async function main() {
       check(`the ${layout.width} px layout has no horizontal overflow`,
         layout.contentWidth <= layout.viewportWidth,
         JSON.stringify(layout));
+      check(`the WebMCP badge is not clipped at ${layout.width}×${layout.height}`,
+        layout.webmcpBadge.scrollWidth <= layout.webmcpBadge.clientWidth + 1,
+        JSON.stringify(layout.webmcpBadge));
     }
     const narrowest = responsive.find((layout) => layout.width === 320);
     check('the Copy control is at least 44 by 44 CSS pixels at 320 px',
-      narrowest.copyWidth >= 44 && narrowest.copyHeight >= 44,
+      narrowest.copy.width >= 44 && narrowest.copy.height >= 44,
       JSON.stringify(narrowest));
+    check('the home wordmark is at least 44 by 44 CSS pixels at 320 px',
+      narrowest.brand.width >= 44 && narrowest.brand.height >= 44,
+      JSON.stringify(narrowest.brand));
+
+    const judgeDesktop = responsive.find((layout) => layout.width === 1920);
+    check('the 1920×889 visitor layout has no horizontal overflow',
+      judgeDesktop.contentWidth <= judgeDesktop.viewportWidth,
+      JSON.stringify(judgeDesktop));
+    check('the agent quick-start and Copy prompt enter the first desktop viewport',
+      judgeDesktop.quickHeading.top >= 0
+        && judgeDesktop.quickHeading.top < judgeDesktop.height
+        && judgeDesktop.copy.bottom <= judgeDesktop.height,
+      JSON.stringify(judgeDesktop));
+    check('the visitor badge visibly names WebMCP before its live counts',
+      judgeDesktop.webmcp.startsWith('WebMCP ·'),
+      judgeDesktop.webmcp);
+    check('the tool disclosure begins closed instead of dumping internal names into the walkthrough',
+      judgeDesktop.disclosureOpen === false,
+      JSON.stringify(judgeDesktop));
+    check('the READY tab order is prompt, requirements, then the secondary shared link while Step 3 stays hidden',
+      judgeDesktop.order.prompt >= 0
+        && judgeDesktop.order.prompt < judgeDesktop.order.firstRequirement
+        && judgeDesktop.order.firstRequirement < judgeDesktop.order.share
+        && judgeDesktop.order.fault === -1,
+      JSON.stringify(judgeDesktop.order));
+
+    const judgeMobile = responsive.find((layout) => layout.width === 390);
+    check('the 390×844 visitor layout has no horizontal overflow',
+      judgeMobile.contentWidth <= judgeMobile.viewportWidth,
+      JSON.stringify(judgeMobile));
+    check('the mobile hero is materially shorter than the pre-repair 829 px layout',
+      judgeMobile.hero.height <= 700,
+      JSON.stringify(judgeMobile.hero));
+    check('the mobile READY booking section is shorter than the pre-repair 1817 px layout',
+      judgeMobile.booking.height <= 1_600,
+      JSON.stringify(judgeMobile.booking));
+    check('the mobile empty access-plan card is shorter than the pre-repair 721 px layout',
+      judgeMobile.assurance.height <= 500,
+      JSON.stringify(judgeMobile.assurance));
+    check('the mobile prompt, tool disclosure and shared-link action are touch sized',
+      [judgeMobile.copy, judgeMobile.summary, judgeMobile.share]
+        .every(({ width, height }) => width >= 44 && height >= 44),
+      JSON.stringify({ copy: judgeMobile.copy, summary: judgeMobile.summary, share: judgeMobile.share }));
+    check('the mobile activity trace reads vertically as Agent, Tool, Page',
+      judgeMobile.protocolFields.length === 3
+        && judgeMobile.protocolFields.every((field, index, fields) => index === 0 || field.top > fields[index - 1].top)
+        && judgeMobile.protocolFields.every((field) => Math.abs(field.left - judgeMobile.protocolFields[0].left) < 2),
+      JSON.stringify(judgeMobile.protocolFields));
+
+    await evaluate(client, `document.querySelector('.tool-disclosure summary').focus(); return true;`);
+    await pressKey(client, 'Enter');
+    await sleep(100);
+    const disclosure = await evaluate(client, `
+      const details = document.querySelector('.tool-disclosure');
+      const chips = [...document.querySelectorAll('#tool-list .tool-chip')];
+      return { open: details.open, chips: chips.map((chip) => chip.textContent), visible: chips.every((chip) => chip.getBoundingClientRect().height > 0) };
+    `);
+    check('the browser-tool disclosure opens from the keyboard and reveals the live registry',
+      disclosure.open === true && disclosure.chips.length > 0 && disclosure.visible === true,
+      JSON.stringify(disclosure));
+
+    const clipboard = await evaluate(client, `
+      const original = navigator.clipboard;
+      let copied = '';
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: async (value) => { copied = String(value); } },
+      });
+      const prompt = document.querySelector('#example-prompt').textContent.trim();
+      document.querySelector('#copy-prompt-button').click();
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const copiedPrompt = copied;
+      document.querySelector('#share-link-button').click();
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const copiedUrl = copied;
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: original });
+      return { prompt, copiedPrompt, copiedUrl, demoId: new URL(location.href).searchParams.get('demo') };
+    `);
+    check('Copy prompt writes the exact visible request',
+      clipboard.copiedPrompt === clipboard.prompt,
+      JSON.stringify(clipboard));
+    check('the footer shared-link action copies this exact venue identity',
+      new URL(clipboard.copiedUrl).searchParams.get('demo') === clipboard.demoId,
+      JSON.stringify(clipboard));
+
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 320,
+      height: 568,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    const textZoom = await evaluate(client, `
+      document.documentElement.style.fontSize = '200%';
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const viewportWidth = document.documentElement.clientWidth;
+      const visibleControls = [...document.querySelectorAll('button, summary, .check-row, .number-grid label')]
+        .filter((element) => element.getClientRects().length > 0)
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          return { id: element.id || element.tagName, width: rect.width, height: rect.height };
+        });
+      const result = {
+        viewportWidth,
+        contentWidth: document.documentElement.scrollWidth,
+        undersized: visibleControls.filter(({ width, height }) => width < 44 || height < 44),
+        offenders: [...document.querySelectorAll('body *')]
+          .filter((element) => element.getClientRects().length > 0)
+          .map((element) => ({
+            selector: element.id ? '#' + element.id : element.className ? '.' + String(element.className).trim().replace(/\\s+/g, '.') : element.tagName,
+            right: Math.round(element.getBoundingClientRect().right),
+          }))
+          .filter(({ right }) => right > viewportWidth + 1)
+          .slice(0, 12),
+      };
+      document.documentElement.style.removeProperty('font-size');
+      return result;
+    `);
+    check('the 320 px visitor reflows without horizontal scrolling at 200% text size',
+      textZoom.contentWidth <= textZoom.viewportWidth,
+      JSON.stringify(textZoom));
+    check('visible visitor controls remain touch sized at 200% text size',
+      textZoom.undersized.length === 0,
+      JSON.stringify(textZoom.undersized));
+
+    await client.send('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+    });
+    const reducedMotion = await evaluate(client, `
+      const raw = getComputedStyle(document.querySelector('.button')).transitionDuration.split(',')[0].trim();
+      const seconds = raw.endsWith('ms') ? Number.parseFloat(raw) / 1000 : Number.parseFloat(raw);
+      return {
+        matches: matchMedia('(prefers-reduced-motion: reduce)').matches,
+        transitionDuration: raw,
+        transitionSeconds: seconds,
+      };
+    `);
+    check('prefers-reduced-motion removes material button animation',
+      reducedMotion.matches === true && reducedMotion.transitionSeconds <= 0.001,
+      JSON.stringify(reducedMotion));
+    await client.send('Emulation.setEmulatedMedia', { features: [] });
+
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 320,
+      height: 568,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    await evaluate(client, `document.querySelector('#build-plan-button').click(); return true;`);
+    const mobileDecisionVisible = await waitForPage(client, `!document.querySelector('#decision-section').hidden`, 10_000);
+    await sleep(100);
+    const mobileDecisionFocus = await evaluate(client, `
+      const decision = document.querySelector('#decision-heading').getBoundingClientRect();
+      return {
+        focused: document.activeElement?.id,
+        top: decision.top,
+        bottom: decision.bottom,
+        viewportHeight: window.innerHeight,
+        scrollY: window.scrollY,
+      };
+    `);
+    check('a 320×568 visitor sees the decision that receives focus after Build',
+      mobileDecisionVisible
+        && mobileDecisionFocus.focused === 'decision-heading'
+        && mobileDecisionFocus.top < mobileDecisionFocus.viewportHeight
+        && mobileDecisionFocus.bottom > 0,
+      JSON.stringify(mobileDecisionFocus));
     await client.send('Emulation.clearDeviceMetricsOverride');
 
     scenario('a visitor can complete the failure and recovery path with only the keyboard');
@@ -1878,6 +2757,55 @@ async function main() {
       fault.facilityRequests.length === 0, fault.facilityRequests.join(' | '));
     check('and the armed fault is still the one that was armed',
       fault.pendingAfter === 'garden-lift', String(fault.pendingAfter));
+
+    scenario('restoring the visitor lift returns focus to the next usable action');
+    await freshVenue();
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 320,
+      height: 568,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    const restoreFocus = JSON.parse(await run(`
+      const id = new URL(location.href).searchParams.get('demo');
+      const operator = await (await fetch('/api/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'operator', demoId: id }),
+      })).json();
+      await fetch('/api/operator/facilities/east-lift/outage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Demo-Session': operator.session.token },
+        body: JSON.stringify({ reasonCode: 'POWER_FAULT' }),
+      });
+      await settle();
+      const restore = document.querySelector('#fault-button');
+      restore.scrollIntoView({ block: 'center' });
+      restore.focus({ preventScroll: true });
+      const offered = /back in service/i.test(restore.textContent) && document.activeElement === restore;
+      restore.click();
+      const deadline = Date.now() + 10000;
+      while (Date.now() < deadline && !document.querySelector('#demo-controls').hidden) await sleep(80);
+      const build = document.querySelector('#build-plan-button');
+      const rect = build.getBoundingClientRect();
+      return JSON.stringify({
+        offered,
+        controlsHidden: document.querySelector('#demo-controls').hidden,
+        focused: document.activeElement?.id,
+        top: rect.top,
+        bottom: rect.bottom,
+        viewportHeight: window.innerHeight,
+        scrollY: window.scrollY,
+      });
+    `));
+    check('restoring the lift leaves focus on a visible Build action instead of the document body',
+      restoreFocus.offered
+        && restoreFocus.controlsHidden
+        && restoreFocus.focused === 'build-plan-button'
+        && restoreFocus.top < restoreFocus.viewportHeight
+        && restoreFocus.bottom > 0,
+      JSON.stringify(restoreFocus));
+    await client.send('Emulation.clearDeviceMetricsOverride');
 
     scenario('a visitor can actually start over before confirmation');
     await freshVenue();
@@ -2160,10 +3088,11 @@ async function main() {
       let firstPollObserved = false;
       while (Date.now() < firstPollDeadline) {
         const card = visibleLiftCard();
-        const alert = document.querySelector('#a11y-alert').textContent;
+        const alert = document.querySelector('#booking-impact-alert');
         if (rev() > beforeRevision
           && card && !card.closest('[hidden]') && /Out of service/i.test(card.textContent)
-          && alert.includes(usedFacility?.label ?? '__missing__')) {
+          && !alert.hidden
+          && alert.textContent.includes(usedFacility?.label ?? '__missing__')) {
           firstPollObserved = true;
           break;
         }
@@ -2174,7 +3103,10 @@ async function main() {
         revision: rev(),
         cardVisible: Boolean(firstCard && !firstCard.closest('[hidden]')),
         cardText: firstCard?.textContent.replace(/\\s+/g, ' ').trim() ?? '',
-        alert: document.querySelector('#a11y-alert').textContent,
+        impactHidden: document.querySelector('#booking-impact-alert').hidden,
+        impactText: document.querySelector('#booking-impact-alert').textContent.replace(/\\s+/g, ' ').trim(),
+        impactAriaLabel: document.querySelector('#booking-impact-alert').getAttribute('aria-label'),
+        separateAssertiveText: document.querySelector('#a11y-alert').textContent,
       };
 
       // No read tool or manual refresh here: let at least one more interval
@@ -2185,7 +3117,10 @@ async function main() {
         revision: rev(),
         cardVisible: Boolean(laterCard && !laterCard.closest('[hidden]')),
         cardText: laterCard?.textContent.replace(/\\s+/g, ' ').trim() ?? '',
-        alert: document.querySelector('#a11y-alert').textContent,
+        impactHidden: document.querySelector('#booking-impact-alert').hidden,
+        impactText: document.querySelector('#booking-impact-alert').textContent.replace(/\\s+/g, ' ').trim(),
+        impactAriaLabel: document.querySelector('#booking-impact-alert').getAttribute('aria-label'),
+        separateAssertiveText: document.querySelector('#a11y-alert').textContent,
       };
       return JSON.stringify({
         precondition,
@@ -2211,16 +3146,20 @@ async function main() {
         && bookingBreakage.first.cardText.includes(bookingBreakage.usedFacility?.label ?? '__missing__')
         && /Out of service/i.test(bookingBreakage.first.cardText),
       JSON.stringify(bookingBreakage.first));
-    check('the accessibility alert names the booked lift and says the booking still stands',
-      bookingBreakage.first.alert.includes(bookingBreakage.usedFacility?.label ?? '__missing__')
-        && /left service/i.test(bookingBreakage.first.alert)
-        && /booking still stands/i.test(bookingBreakage.first.alert),
-      bookingBreakage.first.alert);
-    check('the visible warning and accessibility alert survive another ordinary poll',
+    check('one visible accessibility alert names the booked lift and says the booking still stands',
+      bookingBreakage.first.impactHidden === false
+        && bookingBreakage.first.impactText.includes(bookingBreakage.usedFacility?.label ?? '__missing__')
+        && /became unavailable/i.test(bookingBreakage.first.impactAriaLabel)
+        && /booking still stands/i.test(bookingBreakage.first.impactAriaLabel)
+        && bookingBreakage.first.separateAssertiveText === '',
+      JSON.stringify(bookingBreakage.first));
+    check('the visible warning survives another ordinary poll without a duplicate assertive message',
       bookingBreakage.afterPoll.cardVisible === true
         && bookingBreakage.afterPoll.cardText === bookingBreakage.first.cardText
-        && bookingBreakage.afterPoll.alert === bookingBreakage.first.alert
-        && bookingBreakage.afterPoll.alert.includes(bookingBreakage.usedFacility?.label ?? '__missing__'),
+        && bookingBreakage.afterPoll.impactHidden === false
+        && bookingBreakage.afterPoll.impactText === bookingBreakage.first.impactText
+        && bookingBreakage.afterPoll.impactAriaLabel === bookingBreakage.first.impactAriaLabel
+        && bookingBreakage.afterPoll.separateAssertiveText === '',
       JSON.stringify({ first: bookingBreakage.first, after: bookingBreakage.afterPoll }));
 
     scenario('a READY venue-only refusal is visible and clears after the venue recovers');
@@ -2251,23 +3190,34 @@ async function main() {
       build.focus();
       const heldFocus = document.activeElement === build;
       build.click();
-      const notice = document.querySelector('#venue-notice');
+      const feedback = document.querySelector('#plan-feedback');
       const refusalDeadline = Date.now() + 10000;
-      while (Date.now() < refusalDeadline && (notice.hidden || build.disabled)) await sleep(80);
+      while (Date.now() < refusalDeadline && (feedback.hidden || build.disabled)) await sleep(80);
       const explanation = await call('explain_access_refusal', {});
       const duringRevision = rev();
+      // A transient toast used to be the only result. Wait longer than its full
+      // lifetime and prove the result next to the plan is still there.
+      await sleep(4400);
+      const feedbackRect = feedback.getBoundingClientRect();
       const during = {
-        noticeShown: !notice.hidden,
-        noticeText: notice.textContent.trim(),
-        buttonFocused: document.activeElement === build,
+        feedbackShown: !feedback.hidden,
+        feedbackText: feedback.textContent.replace(/\\s+/g, ' ').trim(),
+        inViewport: feedbackRect.top < window.innerHeight && feedbackRect.bottom > 0,
+        insidePlanCard: feedback.closest('#assurance-card')?.id === 'assurance-card',
+        emptyPlanHidden: document.querySelector('#assurance-empty').hidden,
+        toastHidden: document.querySelector('#toast').hidden,
+        venueNoticeHidden: document.querySelector('#venue-notice').hidden,
+        buttonEnabled: !build.disabled,
+        buttonLabel: build.textContent,
+        focused: document.activeElement?.id,
+        phase: (await call('get_access_bundle_status', {})).phase,
       };
 
       await asOperator('east-lift', 'restore');
-      await asOperator('garden-lift', 'restore');
       const recoveryDeadline = Date.now() + 10000;
       let clearedByPoll = false;
       while (Date.now() < recoveryDeadline) {
-        if (rev() > duringRevision && notice.hidden) {
+        if (rev() > duringRevision && feedback.hidden) {
           clearedByPoll = true;
           break;
         }
@@ -2275,11 +3225,16 @@ async function main() {
       }
       const afterUi = {
         revision: rev(),
-        noticeShown: !notice.hidden,
-        noticeText: notice.textContent.trim(),
+        feedbackShown: !feedback.hidden,
+        feedbackMessage: document.querySelector('#plan-feedback-message').textContent.trim(),
+        buttonLabel: build.textContent,
       };
       const afterState = await call('get_event_access_state', {});
       const afterExplanation = await call('explain_access_refusal', {});
+      build.click();
+      const successfulDeadline = Date.now() + 10000;
+      while (Date.now() < successfulDeadline && document.querySelector('#decision-section').hidden) await sleep(80);
+      const recoveredPlan = await call('get_access_bundle_status', {});
       return JSON.stringify({
         readyBeforeRefusal,
         heldFocus,
@@ -2290,6 +3245,9 @@ async function main() {
         afterUi,
         afterState,
         afterExplanation,
+        recoveredPlan,
+        decisionShown: !document.querySelector('#decision-section').hidden,
+        route: document.querySelector('#route-steps').textContent.replace(/\\s+/g, ' ').trim(),
       });
     `));
     const liftsBeforeRefusal = (standing.readyBeforeRefusal.facilities ?? []).filter((facility) => facility.label.includes('Lift'));
@@ -2305,26 +3263,41 @@ async function main() {
         && standing.explanation.nextAction === 'CONTACT_VENUE_STAFF'
         && (standing.explanation.validOptionsNow ?? []).length === 0,
       JSON.stringify(standing.explanation));
-    check('the READY refusal is a standing visible notice with the venue-only diagnosis',
-      standing.during.noticeShown === true
-        && standing.during.noticeText.includes('No requirement you change can reach a plan while this lasts: a lift is out of service.')
-        && standing.during.noticeText.includes('venue operations page')
-        && !/Change a requirement and try again/i.test(standing.during.noticeText),
-      standing.during.noticeText);
-    check('the refused Build action returns focus to its still-usable control',
-      standing.during.buttonFocused === true,
+    check('the READY refusal stays inline in the access-plan card after any toast lifetime',
+      standing.during.feedbackShown === true
+        && standing.during.inViewport === true
+        && standing.during.insidePlanCard === true
+        && standing.during.emptyPlanHidden === true
+        && standing.during.toastHidden === true
+        && standing.during.venueNoticeHidden === true
+        && standing.during.feedbackText.includes('One or more lifts are out of service')
+        && standing.during.feedbackText.includes('operations page')
+        && standing.during.feedbackText.includes('Requirements cannot fix this')
+        && standing.during.feedbackText.includes('Nothing was booked or reserved.')
+        && !/Change a requirement and try again/i.test(standing.during.feedbackText),
       JSON.stringify(standing.during));
-    check('an ordinary poll clears the standing notice after both lifts recover',
+    check('the refused Build action settles in READY with an exact retry label and focus on the error',
+      standing.during.buttonEnabled === true
+        && standing.during.buttonLabel === 'Recheck route availability'
+        && standing.during.phase === 'READY'
+        && standing.during.focused === 'plan-feedback-heading'
+        && !/checking|in progress/i.test(standing.during.buttonLabel),
+      JSON.stringify(standing.during));
+    check('an ordinary poll clears the standing result after one usable lift recovers',
       standing.clearedByPoll === true
         && standing.afterUi.revision > standing.duringRevision
-        && standing.afterUi.noticeShown === false
-        && standing.afterUi.noticeText === '',
+        && standing.afterUi.feedbackShown === false
+        && standing.afterUi.feedbackMessage === ''
+        && standing.afterUi.buttonLabel === 'Build my complete access plan',
       JSON.stringify(standing.afterUi));
-    check('the recovered READY venue no longer reports a refusal',
+    check('with exactly one lift restored the same visible Build control produces a complete plan',
       standing.afterState.phase === 'READY'
-        && (standing.afterState.facilities ?? []).every((facility) => facility.status === 'OPERATIONAL')
-        && standing.afterExplanation.blocked === false,
-      JSON.stringify({ state: standing.afterState, explanation: standing.afterExplanation }));
+        && (standing.afterState.facilities ?? []).filter((facility) => facility.status === 'OPERATIONAL').length === 1
+        && standing.afterExplanation.blocked === false
+        && standing.decisionShown === true
+        && standing.recoveredPlan.phase === 'AWAITING_HUMAN_CONFIRMATION'
+        && standing.route.includes('East Lift L2'),
+      JSON.stringify({ state: standing.afterState, explanation: standing.afterExplanation, recoveredPlan: standing.recoveredPlan, route: standing.route }));
 
     scenario('the decision log says which actor really did each thing');
     await freshVenue();
@@ -3094,6 +4067,9 @@ async function main() {
     check('no non-network console errors',
       nonNetworkConsoleErrors.length === 0,
       nonNetworkConsoleErrors.slice(0, 5).map((entry) => `[${entry.scenario}] ${entry.message}`).join(' | '));
+    check('no console warnings',
+      consoleWarnings.length === 0,
+      consoleWarnings.slice(0, 5).map((entry) => `[${entry.scenario}] ${entry.message}`).join(' | '));
     check('taking the server away produced only connection errors, not page errors',
       consoleErrors.filter(({ scenario: where }) => where === RESTART_SCENARIO)
         .every(({ message }) => /net::ERR_|Failed to load resource/.test(message)),

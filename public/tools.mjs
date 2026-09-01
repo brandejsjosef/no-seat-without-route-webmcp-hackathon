@@ -10,6 +10,8 @@
  * names discussed publicly are not in the live specification.
  */
 
+import { bookingImpactView } from './views.mjs';
+
 /** Limits published in Chrome's WebMCP tool-authoring guidance. */
 export const TOOL_LIMITS = Object.freeze({
   nameChars: 30,
@@ -289,6 +291,7 @@ function planDigest(plan) {
 }
 
 function stateDigest(state, plan = state.activePlan) {
+  const impact = bookingImpactView(state);
   return {
     phase: state.phase,
     venueRevision: state.resourceVersion,
@@ -300,7 +303,33 @@ function stateDigest(state, plan = state.activePlan) {
           partialReservations: state.booking.partialReservations,
         }
       : null,
+    bookingImpact: impact.visible
+      ? {
+          affectedFacilities: impact.affectedLabels,
+          bookingStillStands: impact.bookingStillStands,
+          automaticCancellation: impact.automaticCancellation,
+          automaticReroute: impact.automaticReroute,
+          pageWarningVisible: impact.pageWarningVisible,
+          outOfBandNotification: impact.outOfBandNotification,
+        }
+      : null,
   };
+}
+
+function operatorBookingImpact(state) {
+  const impact = bookingImpactView(state);
+  return impact.visible
+    ? {
+        bookingReference: impact.receipt,
+        affectedFacilities: impact.affectedLabels,
+        bookingStillStands: impact.bookingStillStands,
+        automaticCancellation: impact.automaticCancellation,
+        automaticReroute: impact.automaticReroute,
+        pageWarningVisible: impact.pageWarningVisible,
+        outOfBandNotification: impact.outOfBandNotification,
+        nextAction: 'VENUE_STAFF_MUST_ARRANGE_NEXT_STEP',
+      }
+    : null;
 }
 
 function optionDigest(option) {
@@ -346,7 +375,7 @@ export function createVisitorTools({ api, refresh, trace = () => {} }) {
       availableIn: PHASES,
       execute: async () => {
         const state = await refresh();
-        trace('WebMCP browser agent', 'get_event_access_state', `read rev ${state.resourceVersion}`);
+        trace('WebMCP browser agent', 'get_event_access_state', `read venue revision ${state.resourceVersion}`);
         // This snapshot counts resources that are currently reserved. It must
         // not be labelled as a partial write: a successful atomic bundle has
         // three reserved resources and zero partial reservations. The latter is
@@ -486,7 +515,7 @@ export function createVisitorTools({ api, refresh, trace = () => {} }) {
           signal,
         });
         const state = await refresh();
-        trace('WebMCP browser agent', 'find_access_bundle', `option found · rev ${payload.state.resourceVersion}`);
+        trace('WebMCP browser agent', 'find_access_bundle', `option found · venue revision ${payload.state.resourceVersion}`);
         return compactJson(stateDigest(state, payload.plan));
       },
     },
@@ -538,7 +567,7 @@ export function createVisitorTools({ api, refresh, trace = () => {} }) {
             signal,
           });
           const state = await refresh();
-          trace('WebMCP browser agent', 'replan_access_bundle', `replacement ready · rev ${payload.state.resourceVersion}`);
+          trace('WebMCP browser agent', 'replan_access_bundle', `replacement ready · venue revision ${payload.state.resourceVersion}`);
           return compactJson(stateDigest(state, payload.plan));
         } catch (error) {
           await refresh();
@@ -597,12 +626,13 @@ export function createOperatorTools({ api, refresh, trace = () => {} }) {
       availableIn: PHASES,
       execute: async () => {
         const state = await refresh();
-        trace('WebMCP operator agent', 'get_facility_status', `read rev ${state.resourceVersion}`);
+        trace('WebMCP operator agent', 'get_facility_status', `read venue revision ${state.resourceVersion}`);
         return compactJson({
           venueRevision: state.resourceVersion,
           facilities: Object.values(state.resources)
             .filter((resource) => resource.kind === 'FACILITY')
             .map(({ id, label, status }) => ({ id, label, status })),
+          bookingImpact: operatorBookingImpact(state),
         });
       },
     },
@@ -626,16 +656,22 @@ export function createOperatorTools({ api, refresh, trace = () => {} }) {
       annotations: { readOnlyHint: false, untrustedContentHint: false },
       availableIn: PHASES,
       execute: async ({ facilityId, reasonCode }, { signal } = {}) => {
-        const payload = await call('report_facility_outage', `/api/operator/facilities/${encodeURIComponent(facilityId)}/outage`, {
+        await call('report_facility_outage', `/api/operator/facilities/${encodeURIComponent(facilityId)}/outage`, {
           method: 'POST',
           body: JSON.stringify({ reasonCode }),
           signal,
         });
-        trace('WebMCP operator agent', 'report_facility_outage', `rev ${payload.state.resourceVersion}`);
+        // The output says whether the page warning is visible, so repaint the
+        // page before returning instead of waiting for the next one-second
+        // poll. Build the result from that same refreshed state so the claim
+        // and the pixels cannot describe two different moments.
+        const state = await refresh();
+        trace('WebMCP operator agent', 'report_facility_outage', `venue revision ${state.resourceVersion}`);
         return compactJson({
-          venueRevision: payload.state.resourceVersion,
+          venueRevision: state.resourceVersion,
           facility: facilityId,
-          status: payload.state.resources[facilityId]?.status ?? 'UNKNOWN',
+          status: state.resources[facilityId]?.status ?? 'UNKNOWN',
+          bookingImpact: operatorBookingImpact(state),
         });
       },
     },
@@ -654,16 +690,18 @@ export function createOperatorTools({ api, refresh, trace = () => {} }) {
       annotations: { readOnlyHint: false, untrustedContentHint: false },
       availableIn: PHASES,
       execute: async ({ facilityId }, { signal } = {}) => {
-        const payload = await call('restore_facility', `/api/operator/facilities/${encodeURIComponent(facilityId)}/restore`, {
+        await call('restore_facility', `/api/operator/facilities/${encodeURIComponent(facilityId)}/restore`, {
           method: 'POST',
           body: '{}',
           signal,
         });
-        trace('WebMCP operator agent', 'restore_facility', `rev ${payload.state.resourceVersion}`);
+        const state = await refresh();
+        trace('WebMCP operator agent', 'restore_facility', `venue revision ${state.resourceVersion}`);
         return compactJson({
-          venueRevision: payload.state.resourceVersion,
+          venueRevision: state.resourceVersion,
           facility: facilityId,
-          status: payload.state.resources[facilityId]?.status ?? 'UNKNOWN',
+          status: state.resources[facilityId]?.status ?? 'UNKNOWN',
+          bookingImpact: operatorBookingImpact(state),
         });
       },
     },

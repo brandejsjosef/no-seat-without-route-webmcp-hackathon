@@ -89,7 +89,7 @@ export function faultControlView(state, { facilityId = VISITOR_CONTROL_FACILITY_
     return {
       mode: 'RESTORE',
       text: `Put ${controlLabel} back in service`,
-      hint: 'The lift is offline. Restore it here, or let the agent replan around it.',
+      hint: 'Restore this lift, or let the agent replan around it.',
       ariaDisabled: false,
       warning: false,
       quiet: true,
@@ -97,10 +97,29 @@ export function faultControlView(state, { facilityId = VISITOR_CONTROL_FACILITY_
     };
   }
 
+  // The safe-failure control demonstrates a review-to-commit race. Offering it
+  // before a complete plan is awaiting confirmation makes the numbered demo
+  // read out of order and lets a visitor arm an event they cannot yet observe.
+  // Restoration remains available above, even without an active plan.
+  if (!['AWAITING_HUMAN_CONFIRMATION', 'REPLAN_READY'].includes(state?.phase)) {
+    const complete = state?.phase === 'CONFIRMED';
+    return {
+      mode: 'LOCKED',
+      text: complete ? 'Safe-failure test complete' : 'Build a plan to unlock this test',
+      hint: complete
+        ? 'Reset the synthetic demo to run the stale-plan test again.'
+        : 'Build a complete plan before testing a confirmation failure.',
+      ariaDisabled: true,
+      warning: false,
+      quiet: true,
+      request: null,
+    };
+  }
+
   return {
     mode: 'ARM',
-    text: 'Take the lift out of service while I confirm',
-    hint: 'Arms a lift failure that lands between your review and the server write.',
+    text: `Arm ${controlLabel} failure for confirmation`,
+    hint: 'Fails on the next confirmation; the lift stays online until then.',
     ariaDisabled: false,
     warning: true,
     quiet: false,
@@ -125,27 +144,31 @@ export function raceIntroView(state, { facilityId = VISITOR_CONTROL_FACILITY_ID 
   const pendingId = state?.demo?.pendingOutageResourceId ?? null;
   const label = facilityLabel(state, facilityId) ?? 'the lift';
 
+  if (state?.phase === 'CONFIRMED') {
+    return {
+      canArm: false,
+      text: 'The safe-failure test is complete. Reset the demo to run it again.',
+    };
+  }
+
   if (pendingId) {
     const pendingLabel = facilityLabel(state, pendingId) ?? pendingId;
     return {
       canArm: false,
-      text: `A fault is already armed on ${pendingLabel}. It fires during the visitor's next confirmation, `
-        + 'after the plan looked complete. Arming a second one is refused while this one is pending.',
+      text: `A fault is already armed on ${pendingLabel} for the next confirmation. Another cannot be armed yet.`,
     };
   }
 
   if (state?.resources?.[facilityId]?.status !== 'OPERATIONAL') {
     return {
       canArm: false,
-      text: `${label} is already out of service, so there is no confirmation to lose it during. `
-        + 'Put it back in service first, then arm the fault.',
+      text: `${label} is out of service. Restore it before arming a confirmation fault.`,
     };
   }
 
   return {
     canArm: true,
-    text: `Arm a fault on ${label}. The venue will report it after the visitor `
-      + 'starts confirming the old plan but before the server commits it.',
+    text: `Arm a fault on ${label}. It will land after review but before commit.`,
   };
 }
 
@@ -226,8 +249,8 @@ export function standingRefusalView(message, diagnosis = {}) {
   if (canHelp === false) {
     return {
       requirementChangeCanHelp: false,
-      text: `${message} No requirement you change can reach a plan while this lasts: a lift is out of `
-        + 'service. The venue operations page shows which one.',
+      text: 'No complete route is available. One or more lifts are out of service; the operations page shows which. '
+        + 'Requirements cannot fix this—the venue must restore a lift.',
     };
   }
 
@@ -235,14 +258,46 @@ export function standingRefusalView(message, diagnosis = {}) {
     return {
       requirementChangeCanHelp: true,
       text: shortest === null
-        ? `${message} Change a requirement and try again.`
-        : `${message} Change a requirement and try again - the shortest route the venue has is ${shortest} m.`,
+        ? 'No complete route fits the current requirements. Change a requirement and try again.'
+        : `No complete route fits the current limits. The shortest route meeting the other requirements is ${shortest} m. `
+          + 'Increase the maximum route and try again.',
     };
   }
 
   // No diagnosis travelled with this refusal. Say what the venue said and add
   // nothing, rather than guessing which of the two answers applies.
   return { requirementChangeCanHelp: null, text: message };
+}
+
+/** Exact build-form label for every published venue phase. */
+export function buildPlanButtonView(phase, { hasStandingRefusal = false } = {}) {
+  const labels = {
+    READY: hasStandingRefusal ? 'Recheck route availability' : 'Build my complete access plan',
+    PLAN_READY: 'Plan found — use Start over to change requirements',
+    AWAITING_HUMAN_CONFIRMATION: 'Plan ready — review and confirm below',
+    PLAN_STALE: 'Plan stopped — use the recovery below',
+    REPLAN_READY: 'Replacement ready — review and confirm below',
+    NO_ALTERNATIVE: 'No complete plan — see the recovery below',
+    CONFIRMED: 'Booked — use Reset demo to plan again',
+  };
+  return {
+    label: labels[phase] ?? 'Plan unavailable — check the details below',
+    phaseKnown: Object.hasOwn(labels, phase),
+  };
+}
+
+/** Compact, human-readable venue phase for the operator's three-column monitor. */
+export function operatorPhaseLabel(phase) {
+  const labels = {
+    READY: 'READY',
+    PLAN_READY: 'PLAN FOUND',
+    AWAITING_HUMAN_CONFIRMATION: 'AWAITING VISITOR',
+    PLAN_STALE: 'ROUTE CHANGED',
+    REPLAN_READY: 'REPLAN READY',
+    NO_ALTERNATIVE: 'NO ROUTE',
+    CONFIRMED: 'CONFIRMED',
+  };
+  return labels[phase] ?? String(phase ?? 'UNKNOWN').replaceAll('_', ' ');
 }
 
 /**
@@ -325,8 +380,58 @@ export function bookedResourcesOutOfService(booking, resources = {}) {
 /** What to say about that, or null when there is nothing to say. */
 export function bookingBreakageAnnouncement(labels = []) {
   if (labels.length === 0) return null;
-  return `${labels.join(' and ')} left service after your booking was confirmed. `
+  return `${labels.join(' and ')} became unavailable after your booking was confirmed. `
     + 'The booking still stands; ask venue staff before you travel.';
+}
+
+/**
+ * Persistent operational consequence of an outage after confirmation.
+ *
+ * The booking record is deliberately immutable: reporting an outage neither
+ * cancels nor reroutes it. That makes the current service failure more, not
+ * less, important to show. An unrelated lift outage must not raise this alarm.
+ */
+export function bookingImpactView(state = {}) {
+  const booking = state.booking ?? null;
+  const resources = state.resources ?? {};
+  if (!booking) return { visible: false, signature: 'NONE' };
+
+  const affectedResourceIds = (booking.resourceIds ?? [])
+    .filter((id) => (
+      resources[id]?.kind === 'FACILITY'
+        && ['OUT_OF_SERVICE', 'UNAVAILABLE'].includes(resources[id]?.status)
+    ));
+  if (!affectedResourceIds.length) return { visible: false, signature: 'NONE' };
+
+  const affectedLabels = affectedResourceIds.map((id) => resources[id]?.label ?? id);
+  const facilities = Object.values(resources).filter((resource) => resource.kind === 'FACILITY');
+  const onlineLiftCount = facilities.filter((resource) => resource.status === 'OPERATIONAL').length;
+  const noLiftRoute = facilities.length > 0 && onlineLiftCount === 0;
+  const receipt = booking.receipt ?? 'confirmed booking';
+  const joined = affectedLabels.join(' and ');
+  const reserved = state.atomicity?.reservedResourceCount ?? 0;
+
+  return {
+    visible: true,
+    signature: `${receipt}|${affectedResourceIds.join('|')}|${noLiftRoute ? 'NO_LIFT_ROUTE' : 'ROUTE_DISRUPTED'}`,
+    variant: noLiftRoute ? 'NO_LIFT_ROUTE' : 'CONFIRMED_ROUTE_DISRUPTED',
+    receipt,
+    affectedResourceIds,
+    affectedLabels,
+    onlineLiftCount,
+    bookingStillStands: true,
+    automaticCancellation: false,
+    automaticReroute: false,
+    pageWarningVisible: true,
+    outOfBandNotification: false,
+    heading: noLiftRoute
+      ? 'No step-free lift route is currently available'
+      : 'A confirmed booking has lost its working route',
+    message: noLiftRoute
+      ? `Both lifts are out of service. Booking ${receipt} still uses ${joined}; its confirmed route cannot be fulfilled.`
+      : `Booking ${receipt} still uses ${joined}, now out of service. The confirmed route is disrupted; the booking stays active.`,
+    proof: `${reserved} reservable resources remain held. This demo sends no email, SMS or staff workflow and performs no cancellation or reroute. Venue staff must act before travel.`,
+  };
 }
 
 /**

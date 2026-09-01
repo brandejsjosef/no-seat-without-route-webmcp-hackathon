@@ -392,15 +392,14 @@ describe('the operator can act on every lift the venue has', () => {
       'the demo-control blurb is never rewritten for the selected lift',
     );
 
-    // The blurb and all three buttons ship as markup naming the default lift and
-    // are only corrected by the first render. A browser restores a select's
-    // value across a reload, so without this the page can come back with Garden
-    // Lift chosen under a paragraph and three buttons that all say East Lift.
-    assert.match(
-      operatorHtml,
-      /<select id="facility-select"[^>]*\sautocomplete="off"/,
-      'the lift selector can be restored across a reload, leaving the static East Lift copy above a Garden Lift selection',
-    );
+    // Both directly visible radio cards opt out of browser form restoration, so
+    // a reload cannot select Garden underneath static East control copy before
+    // the first live render paints the labels.
+    const radioTags = [...operatorHtml.matchAll(/<input\b[^>]*type="radio"[^>]*name="controlled-facility"[^>]*>/g)]
+      .map((match) => match[0]);
+    assert.equal(radioTags.length, 2, 'both lifts are not represented by a native radio card');
+    assert.ok(radioTags.every((tag) => /autocomplete="off"/.test(tag)), 'a lift radio may be restored across reload');
+    assert.equal(radioTags.filter((tag) => /\schecked(?:\s|>)/.test(tag)).length, 1, 'the radio group has no single default');
   });
 
   test('an armed fault stays visible whichever lift the selector shows', async () => {
@@ -419,7 +418,7 @@ describe('the operator can act on every lift the venue has', () => {
     // touches no element - so it can be evaluated here with a stub snapshot.
     const operatorJs = await read('public/operator.js');
     const from = operatorJs.indexOf('const facilityId = selectedFacility();');
-    const to = operatorJs.indexOf('elements.version.textContent');
+    const to = operatorJs.indexOf('const raceIntro = raceIntroView(', from);
     assert.ok(from > 0 && to > from, 'render() no longer opens with the pure facility prelude');
     const prelude = operatorJs.slice(from, to);
     assert.ok(!prelude.includes('elements.'), 'the prelude now touches the DOM and cannot be evaluated here');
@@ -432,7 +431,11 @@ describe('the operator can act on every lift the venue has', () => {
     assert.ok(helperStart > 0, 'facilityLabel() is gone; the prelude may no longer be pure');
     const helper = operatorJs.slice(helperStart, operatorJs.indexOf('}', helperStart) + 1);
 
-    const decide = new Function('snapshot', 'selectedFacility', `${helper} ${prelude} return { armed, label, eastOut };`);
+    const decide = new Function(
+      'snapshot',
+      'selectedFacility',
+      `let pendingOutageConfirmationId = null; ${helper} ${prelude} return { armed, label, selectedOut };`,
+    );
     const venue = store().snapshot();
     const facilities = ['east-lift', 'garden-lift'];
 
@@ -458,7 +461,10 @@ describe('the operator can act on every lift the venue has', () => {
     const at = operatorJs.indexOf('disableSafely(elements.armButton,');
     assert.ok(at > 0, 'the arm control is no longer disabled through the page helper');
     const disabled = operatorJs.slice(at, operatorJs.indexOf(';', at));
-    assert.ok(disabled.includes('armed'), 'arming stays available while a fault is already pending');
+    assert.ok(
+      disabled.includes('!raceIntro.canArm'),
+      'the arm control bypasses the shared decision that closes pending and completed confirmations',
+    );
   });
 
   test('the operator page can restore whichever lift it took out', async () => {

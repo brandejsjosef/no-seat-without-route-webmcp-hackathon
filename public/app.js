@@ -1,11 +1,16 @@
 import { createVisitorTools, toolsForPhase } from '/tools.mjs';
 import {
   faultControlView, incidentView, replanOutcomeView, standingRefusalView,
-  focusRefuge, bookedResourcesOutOfService, bookingBreakageAnnouncement,
+  focusRefuge, bookedResourcesOutOfService, bookingBreakageAnnouncement, bookingImpactView,
+  buildPlanButtonView,
 } from '/views.mjs';
 
 const elements = {
   venueVersion: document.querySelector('#venue-version'),
+  demoControls: document.querySelector('#demo-controls'),
+  demoControlsEyebrow: document.querySelector('#demo-controls-eyebrow'),
+  demoControlsHeading: document.querySelector('#demo-controls-heading'),
+  demoControlsCopy: document.querySelector('#demo-controls-copy'),
   faultButton: document.querySelector('#fault-button'),
   faultHint: document.querySelector('#fault-hint'),
   shareLinkButton: document.querySelector('#share-link-button'),
@@ -21,6 +26,9 @@ const elements = {
   buildPlanButton: document.querySelector('#build-plan-button'),
   startOverButton: document.querySelector('#start-over-button'),
   assuranceEmpty: document.querySelector('#assurance-empty'),
+  planFeedback: document.querySelector('#plan-feedback'),
+  planFeedbackHeading: document.querySelector('#plan-feedback-heading'),
+  planFeedbackMessage: document.querySelector('#plan-feedback-message'),
   assurancePlan: document.querySelector('#assurance-plan'),
   planEyebrow: document.querySelector('#plan-eyebrow'),
   planTitle: document.querySelector('#plan-title'),
@@ -50,6 +58,10 @@ const elements = {
   decisionHeading: document.querySelector('#decision-heading'),
   confirmButton: document.querySelector('#confirm-button'),
   receiptSection: document.querySelector('#receipt-section'),
+  bookingImpactAlert: document.querySelector('#booking-impact-alert'),
+  bookingImpactAlertHeading: document.querySelector('#booking-impact-alert-heading'),
+  bookingImpactAlertMessage: document.querySelector('#booking-impact-alert-message'),
+  bookingImpactAlertProof: document.querySelector('#booking-impact-alert-proof'),
   receiptHeading: document.querySelector('#receipt-heading'),
   receiptNumber: document.querySelector('#receipt-number'),
   receiptDetails: document.querySelector('#receipt-details'),
@@ -161,8 +173,7 @@ function announce(message, assertive = false) {
  * and inaudible to anyone using a screen reader.
  */
 let standingAlert = '';
-/** Which booked resources were already reported as out, so it is said once. */
-let lastBookedOut = '';
+let lastBookingImpactSignature = 'NONE';
 
 /**
  * Disabling the focused control silently drops focus to the document body.
@@ -315,17 +326,19 @@ function showStandingRefusal(refusal, venueRevision) {
   // The whole refusal, not a message and an optional second argument: dropping
   // the diagnosis at the call site restored the old contradiction and no test
   // noticed, because the guard only looked for the function name.
-  elements.venueNotice.textContent = standingRefusalView(refusal?.message, refusal?.details).text;
-  elements.venueNotice.hidden = false;
-  elements.venueNotice.dataset.kind = 'refusal';
+  const view = standingRefusalView(refusal?.message, refusal?.details);
+  elements.planFeedbackMessage.textContent = view.text;
+  elements.planFeedback.hidden = false;
+  elements.assuranceEmpty.hidden = true;
+  elements.assurancePlan.hidden = true;
+  elements.buildPlanButton.setAttribute('aria-describedby', 'plan-feedback-message');
 }
 
 function clearStandingRefusal() {
   standingRefusalRevision = null;
-  if (elements.venueNotice.dataset.kind !== 'refusal') return;
-  elements.venueNotice.hidden = true;
-  elements.venueNotice.textContent = '';
-  delete elements.venueNotice.dataset.kind;
+  elements.planFeedback.hidden = true;
+  elements.planFeedbackMessage.textContent = '';
+  elements.buildPlanButton.removeAttribute('aria-describedby');
 }
 
 function showVenueRebuiltNotice() {
@@ -399,8 +412,10 @@ async function toggleLiftFault() {
     await api(view.request.path, { method: view.request.method, body: '{}', token });
     await refreshState();
     if (view.mode === 'RESTORE') {
-      setProtocolTrace('Venue operations role', 'restore_facility', `rev ${currentState.resourceVersion}`);
+      setProtocolTrace('Venue operations role', 'restore_facility', `venue revision ${currentState.resourceVersion}`);
       showToast('East Lift is back in service.');
+      elements.buildPlanButton.focus({ preventScroll: true });
+      elements.buildPlanButton.scrollIntoView({ behavior: 'instant', block: 'center' });
     } else {
       setProtocolTrace('Venue operations role', 'arm lift fault', 'lands on the next confirmation');
       showToast('Fault armed. Now press confirm and watch the server refuse the plan.');
@@ -454,7 +469,9 @@ function formatTime(iso) {
 
 function renderPlan(state) {
   const plan = state.activePlan;
-  elements.assuranceEmpty.hidden = Boolean(plan);
+  const refused = standingRefusalRevision !== null && !plan;
+  elements.assuranceEmpty.hidden = Boolean(plan) || refused;
+  elements.planFeedback.hidden = !refused;
   elements.assurancePlan.hidden = !plan;
   elements.routeSection.hidden = !plan;
 
@@ -637,7 +654,12 @@ function renderDecision(state) {
 function renderReceipt(state) {
   const booking = state.booking;
   elements.receiptSection.hidden = !booking;
-  if (!booking) return;
+  if (!booking) {
+    elements.bookingImpactAlert.hidden = true;
+    elements.bookingImpactAlert.removeAttribute('aria-label');
+    lastBookingImpactSignature = 'NONE';
+    return;
+  }
 
   // A booking stands whatever happens next, but the page said "Your accessible
   // booking is complete." over a resource grid reading "East Lift L2 - Out of
@@ -645,13 +667,32 @@ function renderReceipt(state) {
   // never told the route they had been given had broken.
   const bookedResourcesOut = bookedResourcesOutOfService(booking, state.resources);
   const breakage = bookingBreakageAnnouncement(bookedResourcesOut);
-  if (breakage && bookedResourcesOut.join('|') !== lastBookedOut) announce(breakage, true);
-  // It belongs to the venue, not to one transaction, so renderIncident putting
-  // the assertive region back must put this back rather than empty it. Without
-  // this the message was gone from the accessibility tree a second later and
-  // could not be re-read.
-  standingAlert = breakage ?? '';
-  lastBookedOut = bookedResourcesOut.join('|');
+  const impact = bookingImpactView(state);
+  if (impact.visible) {
+    if (impact.signature !== lastBookingImpactSignature) {
+      elements.bookingImpactAlert.hidden = true;
+      elements.bookingImpactAlertHeading.textContent = impact.variant === 'NO_LIFT_ROUTE'
+        ? impact.heading
+        : 'Your confirmed route has been disrupted';
+      elements.bookingImpactAlertMessage.textContent = impact.message.replace(
+        `Booking ${impact.receipt}`,
+        `Your booking ${impact.receipt}`,
+      );
+      elements.bookingImpactAlertProof.textContent = `${state.atomicity.reservedResourceCount} reservable resources remain held. `
+        + 'This demo sends no email, SMS or staff workflow and performs no cancellation or reroute. Venue staff must act before travel.';
+      if (breakage) elements.bookingImpactAlert.setAttribute('aria-label', breakage);
+      elements.bookingImpactAlert.hidden = false;
+    } else {
+      elements.bookingImpactAlert.hidden = false;
+    }
+  } else {
+    elements.bookingImpactAlert.hidden = true;
+    elements.bookingImpactAlert.removeAttribute('aria-label');
+  }
+  // The visible role=alert is the single assertive channel for booking impact.
+  // #a11y-alert remains owned by pre-confirmation incidents and venue-loss
+  // notices, so ordinary polls do not double-announce this warning.
+  lastBookingImpactSignature = impact.visible ? impact.signature : 'NONE';
 
   elements.receiptNumber.textContent = booking.receipt;
   // What the server can actually vouch for is narrow: a valid visitor session
@@ -671,11 +712,11 @@ function renderReceipt(state) {
     <div><dt>Seats</dt><dd>${booking.requirements.companionCount ? 'Wheelchair space W12 + companion W13' : 'Wheelchair space W12'}</dd></div>
     <div><dt>Route</dt><dd>${escapeHtml(booking.route.path.join(' → '))}</dd></div>
     <div><dt>Assistance</dt><dd>${booking.requirements.entranceAssistance ? escapeHtml(booking.route.assistanceLabel) : 'Not requested'}</dd></div>
-    <div><dt>Committed revision</dt><dd>${booking.committedResourceVersion}</dd></div>
+    <div><dt>Committed venue revision</dt><dd>${booking.committedResourceVersion}</dd></div>
     <div><dt>Partial reservations</dt><dd>${booking.partialReservations}</dd></div>
   `);
   const reservedCount = booking.resourceIds.filter((id) => !id.endsWith('-lift')).length;
-  elements.atomicProofText.innerHTML = `<strong>rev ${booking.committedResourceVersion - 1}→${booking.committedResourceVersion} · booking 0→1 · reserved 0→${reservedCount}</strong><br>Route facilities were revalidated; reservable resources changed together.`;
+  elements.atomicProofText.innerHTML = `<strong>Venue revision ${booking.committedResourceVersion - 1}→${booking.committedResourceVersion} · booking 0→1 · reserved 0→${reservedCount}</strong><br>Route facilities were revalidated; reservable resources changed together.`;
 
   if (lastPhase && lastPhase !== 'CONFIRMED') {
     window.setTimeout(() => elements.receiptHeading.focus(), 0);
@@ -707,7 +748,7 @@ function renderAudit(state) {
           <strong>${escapeHtml(auditLabels[entry.action] ?? entry.action)}</strong>
           <small>${escapeHtml(entry.message ?? '')}</small>
         </span>
-        <span class="audit-version">rev ${entry.resourceVersionBefore}→${entry.resourceVersionAfter}</span>
+        <span class="audit-version">Venue revision ${entry.resourceVersionBefore}→${entry.resourceVersionAfter}</span>
       </li>
     `;
   }).join(''));
@@ -716,7 +757,7 @@ function renderAudit(state) {
 function render(state) {
   const previousPhase = lastPhase;
   lastPhase = state.phase;
-  elements.venueVersion.textContent = `rev ${state.resourceVersion}`;
+  elements.venueVersion.textContent = `Venue revision ${state.resourceVersion}`;
   // A standing refusal describes the venue at one revision. The venue moving is
   // exactly the event that can make it untrue, and nothing re-checked it: after
   // both lifts came back the banner still told the visitor to go and look at the
@@ -736,13 +777,9 @@ function render(state) {
   // and a regression test bans that string from the whole file rather than from
   // the rendered output alone. A phrase repeated in a comment is a phrase that
   // can be uncommented.
-  elements.buildPlanButton.textContent = state.phase === 'READY'
-    ? 'Build my complete access plan'
-    : state.phase === 'CONFIRMED'
-      ? 'Booked — use Reset demo to plan again'
-      : state.phase === 'PLAN_READY'
-        ? 'Plan open — use Start over to change requirements'
-        : 'Plan in progress — use the buttons above';
+  elements.buildPlanButton.textContent = buildPlanButtonView(state.phase, {
+    hasStandingRefusal: standingRefusalRevision !== null,
+  }).label;
   elements.requirementsForm.querySelectorAll('input').forEach((input) => {
     disableSafely(input, state.phase !== 'READY', elements.decisionHeading);
   });
@@ -759,9 +796,9 @@ function render(state) {
 
   lastPhase = previousPhase;
   renderPlan(state);
+  renderReceipt(state);
   renderIncident(state);
   renderDecision(state);
-  renderReceipt(state);
   renderAudit(state);
   renderFaultControl(state);
   syncDeclarativeTool(state);
@@ -773,7 +810,7 @@ async function performRefreshState() {
   currentState = payload.state;
   lastSuccessfulRefresh = Date.now();
   elements.venueLiveStatus.classList.remove('stale');
-  elements.venueLiveText.textContent = `Venue data live · ${new Date().toLocaleTimeString('en-GB', { hour12: false })}`;
+  elements.venueLiveText.textContent = 'Venue data live';
   render(currentState);
   await syncWebMcpTools(currentState);
   return currentState;
@@ -807,8 +844,9 @@ async function buildPlanManually() {
     });
     await refreshState();
     clearStandingRefusal();
-    setProtocolTrace('Manual visitor UI', 'find + stage', `plan ready · rev ${currentState.resourceVersion}`);
-    elements.decisionHeading.focus();
+    setProtocolTrace('Manual visitor UI', 'find + stage', `plan ready · venue revision ${currentState.resourceVersion}`);
+    elements.decisionHeading.focus({ preventScroll: true });
+    elements.decisionSection.scrollIntoView({ behavior: 'instant', block: 'center' });
     showToast('Complete route, seats and assistance prepared. Nothing is booked yet.');
     return {
       submittedByVisitor: true,
@@ -819,7 +857,6 @@ async function buildPlanManually() {
       requiresHumanConfirmation: true,
     };
   } catch (error) {
-    showToast(error.message);
     // The toast alone was the entire report of a refusal the visitor cannot act
     // on. Wheelchair width 95 is inside the form's own max, and no route is
     // 95 cm wide, so a judge typing the largest value the page offers saw four
@@ -830,13 +867,25 @@ async function buildPlanManually() {
       // every lift out the server answers requirementChangeCanHelp:false, and
       // the sentence here told the visitor to change a requirement anyway.
       showStandingRefusal(error, currentState?.resourceVersion ?? null);
+      setProtocolTrace(
+        'Manual visitor UI',
+        'find + stage',
+        `no complete plan · venue revision ${currentState?.resourceVersion ?? 'unknown'}`,
+      );
+    } else {
+      showToast(error.message);
     }
     // A refresh that fails for the same reason must not replace the visible
     // failure with an unhandled rejection, nor leave the button reading
     // "Checking the whole route…" forever as though work were still going on.
     await refreshState().catch(() => {});
     if (currentState) render(currentState);
-    elements.buildPlanButton.focus({ preventScroll: true });
+    if (error.code === 'NO_COMPLETE_BUNDLE') {
+      elements.planFeedback.scrollIntoView({ behavior: scrollBehavior(), block: 'nearest' });
+      elements.planFeedbackHeading.focus({ preventScroll: true });
+    } else {
+      elements.buildPlanButton.focus({ preventScroll: true });
+    }
     return { submittedByVisitor: true, error: error.code ?? 'REQUEST_FAILED', message: error.message };
   }
 }
@@ -861,8 +910,9 @@ async function replan() {
       body: '{}',
     });
     await refreshState();
-    setProtocolTrace('Manual visitor UI', 'replan', `replacement ready · rev ${currentState.resourceVersion}`);
-    elements.decisionHeading.focus();
+    setProtocolTrace('Manual visitor UI', 'replan', `replacement ready · venue revision ${currentState.resourceVersion}`);
+    elements.decisionHeading.focus({ preventScroll: true });
+    elements.decisionSection.scrollIntoView({ behavior: 'instant', block: 'center' });
     showToast(replanOutcomeView(currentState?.activePlan).toast);
   } catch (error) {
     // Never let a failing refresh swallow the message explaining the failure.
@@ -927,7 +977,7 @@ async function confirmPlan() {
       }),
     });
     await refreshState();
-    setProtocolTrace('Human confirmation', 'commit booking', `booking 0→1 · rev ${currentState.resourceVersion}`);
+    setProtocolTrace('Human confirmation', 'commit booking', `booking 0→1 · venue revision ${currentState.resourceVersion}`);
     elements.receiptSection.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
     showToast('Every requested resource was confirmed in one transaction.');
   } catch (error) {
@@ -1325,6 +1375,17 @@ function renderFaultControl(state) {
   // another lift armed it offered "Put East Lift back in service" while
   // setting aria-disabled=true, naming an action it would then refuse.
   const view = faultControlView(state);
+
+  // Step 3 only belongs in the walkthrough once there is a complete plan to
+  // test. A real pending fault or outage still reveals the control so the
+  // visitor can see or restore the venue state that now affects the plan.
+  if (elements.demoControls) elements.demoControls.hidden = view.mode === 'LOCKED';
+  const restoring = view.mode === 'RESTORE';
+  elements.demoControlsEyebrow.textContent = restoring ? 'ROUTE UNAVAILABLE' : 'STEP 3 · TEST THE SAFE FAILURE';
+  elements.demoControlsHeading.textContent = restoring ? 'Restore a route to continue' : 'Break the plan during confirmation';
+  elements.demoControlsCopy.textContent = restoring
+    ? 'Restore the lift, then build the complete plan again.'
+    : 'Arm a lift failure, then confirm. The server must reject the stale plan.';
 
   // Set asynchronously by a poll: a real `disabled` here would take focus off
   // the button the visitor just pressed, a second later, with no warning.

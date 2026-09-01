@@ -234,6 +234,7 @@ function refusalCodesIn(source) {
 describe('the set of refusals this product can produce', () => {
   const DOMAIN_CODES = [
   'ACTIVE_PLAN_EXISTS',
+  'BOOKING_ALREADY_CONFIRMED',
   'BOOKING_ALREADY_EXISTS',
   'BUNDLE_NO_LONGER_FEASIBLE',
   'EXPECTED_RESOURCE_VERSION_MISMATCH',
@@ -266,6 +267,7 @@ describe('the set of refusals this product can produce', () => {
 
   const SERVER_CODES = [
     'BODY_TOO_LARGE',
+    'BOOKING_IMPACT_CONFIRMATION_REQUIRED',
     'CROSS_SITE_REQUEST_BLOCKED',
     'DEMO_NOT_FOUND',
     'INTERNAL_ERROR',
@@ -275,13 +277,14 @@ describe('the set of refusals this product can produce', () => {
     'INVALID_PATH',
     'INVALID_ROLE',
     'NOT_FOUND',
+    'OPERATOR_REVIEW_STALE',
     'ORIGIN_REQUIRED',
     'ROLE_FORBIDDEN',
     'SESSION_REQUIRED',
     'TOO_MANY_SESSIONS',
   ];
 
-  test('the access domain refuses in exactly the twenty-nine ways this suite covers', async () => {
+  test('the access domain refuses in exactly the thirty ways this suite covers', async () => {
     const source = await readFile(new URL('lib/domain.mjs', REPO_ROOT), 'utf8');
     assert.deepEqual(
       refusalCodesIn(source),
@@ -290,7 +293,7 @@ describe('the set of refusals this product can produce', () => {
     );
   });
 
-  test('the server refuses in exactly the fourteen ways this suite covers', async () => {
+  test('the server refuses in exactly the sixteen ways this suite covers', async () => {
     const source = await readFile(new URL('server.mjs', REPO_ROOT), 'utf8');
     assert.deepEqual(
       refusalCodesIn(source),
@@ -595,6 +598,15 @@ describe('the operator refusals on the venue side', () => {
     const error = refusalFrom(() => store.armOutage('east-lift'));
     assertDomainRefusal(error, { code: 'FACILITY_NOT_OPERATIONAL', status: 409 });
     assertHumanSentence(error.message, 'FACILITY_NOT_OPERATIONAL');
+  });
+
+  test('arming a future confirmation fault after the booking is complete is refused truthfully', () => {
+    const { store } = storeWithBooking();
+    const error = refusalFrom(() => store.armOutage('east-lift'));
+    assertDomainRefusal(error, { code: 'BOOKING_ALREADY_CONFIRMED', status: 409 });
+    assertHumanSentence(error.message, 'BOOKING_ALREADY_CONFIRMED');
+    assert.match(error.message, /reset/i);
+    assert.equal(store.snapshot().demo.pendingOutageResourceId, null);
   });
 
   test('withdrawing something that cannot be reserved is refused as not reservable', () => {
@@ -958,6 +970,87 @@ let instanceToken = null;
       body: { reasonCode: 'BECAUSE_I_SAID_SO' },
     });
     assertHttpRefusal(badReason, { code: 'INVALID_OUTAGE_REASON', expectedStatus: 422 });
+  });
+
+  test('an operator cannot carry a stale or unacknowledged review through a newly confirmed booking', async () => {
+    const raceVisitor = (await post('/api/session', { body: { role: 'visitor' } })).body.session;
+    const raceOperator = (await post('/api/session', {
+      body: { role: 'operator', demoId: raceVisitor.demoId },
+    })).body.session;
+    const reviewed = (await get('/api/state', raceOperator.token)).body.state;
+
+    const planned = await post('/api/plans', {
+      token: raceVisitor.token,
+      body: { requirements: FULL_REQUIREMENTS },
+    });
+    assert.equal(planned.status, 201);
+    const staged = await post(`/api/plans/${planned.body.plan.id}/stage`, {
+      token: raceVisitor.token,
+      body: { expectedResourceVersion: planned.body.state.resourceVersion },
+    });
+    assert.equal(staged.status, 200);
+    const prepared = await post(`/api/plans/${planned.body.plan.id}/prepare-confirmation`, {
+      token: raceVisitor.token,
+    });
+    assert.equal(prepared.status, 200);
+    const committed = await post(`/api/plans/${planned.body.plan.id}/commit`, {
+      token: raceVisitor.token,
+      body: {
+        confirmationId: prepared.body.confirmation.confirmationId,
+        expectedResourceVersion: prepared.body.confirmation.expectedResourceVersion,
+        accepted: true,
+        requestId: 'refusal-suite-operator-race',
+      },
+    });
+    assert.equal(committed.status, 200);
+    assert.ok(committed.body.state.booking.resourceIds.includes('east-lift'));
+    const afterBooking = committed.body.state;
+
+    const stale = await post('/api/operator/facilities/east-lift/outage', {
+      token: raceOperator.token,
+      body: {
+        reasonCode: 'LIFT_DOOR_FAULT',
+        requireFreshOperatorReview: true,
+        expectedVenueRevision: reviewed.resourceVersion,
+        acknowledgedBookingReference: null,
+      },
+    });
+    assertHttpRefusal(stale, { code: 'OPERATOR_REVIEW_STALE', expectedStatus: 409 });
+    assert.equal(stale.body.error.currentVenueRevision, afterBooking.resourceVersion);
+    assert.match(stale.body.error.message, /review the selected lift again/i);
+    assert.deepStrictEqual(
+      (await get('/api/state', raceOperator.token)).body.state,
+      afterBooking,
+      'the stale refusal reached the page only after changing the venue',
+    );
+
+    const notAcknowledged = await post('/api/operator/facilities/east-lift/outage', {
+      token: raceOperator.token,
+      body: {
+        reasonCode: 'LIFT_DOOR_FAULT',
+        requireFreshOperatorReview: true,
+        expectedVenueRevision: afterBooking.resourceVersion,
+        acknowledgedBookingReference: null,
+      },
+    });
+    assertHttpRefusal(notAcknowledged, {
+      code: 'BOOKING_IMPACT_CONFIRMATION_REQUIRED',
+      expectedStatus: 409,
+    });
+    assert.equal(notAcknowledged.body.error.bookingReference, afterBooking.booking.receipt);
+    assert.equal(notAcknowledged.body.error.bookingStillStands, true);
+    assert.match(notAcknowledged.body.error.message, /review and acknowledge the booking impact/i);
+    assert.deepStrictEqual(
+      (await get('/api/state', raceOperator.token)).body.state,
+      afterBooking,
+      'the missing-acknowledgement refusal reached the page only after changing the venue',
+    );
+
+    // Both named refusals must be handled by the page as a request to refresh
+    // and present the inline review, not fall through to a disappearing toast.
+    const operatorSource = await readFile(new URL('public/operator.js', REPO_ROOT), 'utf8');
+    assert.match(operatorSource, /\['OPERATOR_REVIEW_STALE', 'BOOKING_IMPACT_CONFIRMATION_REQUIRED'\]/);
+    assert.match(operatorSource, /pendingOutageConfirmationId = actedOn;[\s\S]*manualImpactConfirmationHeading\.focus/);
   });
 
   test('hostile but well-formed requests are refused with a code, never with a bare server error', async () => {

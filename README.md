@@ -191,6 +191,15 @@ authorization boundary: session creation hands out whichever role it is asked
 for, so these are self-asserted demo labels that the server then holds a caller
 to. *Limits, stated plainly* says what a production system would add here.
 
+Both lift states remain visible as keyboard-operable radio cards. If the venue
+operator manually selects the lift used by a confirmed booking, the first click
+does not change venue state: it opens an inline acknowledgement naming the
+booking and the consequence, and only the explicit second step reports the
+outage. An outage reported either by that page or through the operator tool does
+not rewrite history: the booking remains committed, while both pages and the
+operator tool expose the route disruption. This demo shows the warning but sends
+no email or SMS and performs no automatic cancellation or reroute.
+
 ### Refusals are results, not thrown errors
 
 A tool that throws reaches the agent as an opaque browser failure: Chrome reports
@@ -250,8 +259,10 @@ No account, no setup, nothing to install beyond a browser that speaks WebMCP.
    meet me at the door."*
    A call that prepares or changes a plan redraws the map; read-only comparisons
    leave it unchanged.
-3. Press **Take the lift out of service while I confirm** in the yellow demo
-   strip. Nothing changes yet — the plan still reads as ready.
+3. Press the now-enabled lift-failure button under **Break the plan during
+   confirmation**. The control arms an East Lift fault for the next
+   confirmation; it does not take the lift offline yet, so the plan still reads
+   as ready.
 4. Press **Confirm this accessible booking**.
    The server refuses: revision 1 no longer matches revision 2, and
    `0 partial reservations` is shown. Nothing was booked.

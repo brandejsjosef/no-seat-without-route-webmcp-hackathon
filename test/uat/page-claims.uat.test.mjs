@@ -81,7 +81,7 @@ describe('the standing refusal repeats the venue diagnosis, not a literal', () =
     assert.equal(error.details.requirementChangeCanHelp, true);
 
     const view = standingRefusalView(error.message, error.details);
-    assert.match(view.text, /change a requirement/i, 'a fixable refusal hides the fix');
+    assert.match(view.text, /change a requirement|increase the maximum route/i, 'a fixable refusal hides the fix');
     assert.equal(view.requirementChangeCanHelp, true);
   });
 

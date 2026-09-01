@@ -1,12 +1,14 @@
 import { createOperatorTools, toolCounts } from '/tools.mjs';
-import { auditTitle, operatorEndpoint, raceIntroView, focusRefuge } from '/views.mjs';
+import {
+  auditTitle, operatorEndpoint, raceIntroView, focusRefuge, bookingImpactView, operatorPhaseLabel,
+} from '/views.mjs';
 
 /**
  * Which lift the demo controls act on. Defaults to East Lift so every existing
  * scenario, including the browser suite, behaves exactly as before.
  */
 function selectedFacility() {
-  return document.querySelector('#facility-select')?.value ?? 'east-lift';
+  return document.querySelector('input[name="controlled-facility"]:checked')?.value ?? 'east-lift';
 }
 
 /**
@@ -42,11 +44,22 @@ function facilityLabel(snapshot, facilityId) {
 const elements = {
   version: document.querySelector('#operator-version'),
   restoreButton: document.querySelector('#restore-outage-button'),
-  facilitySelect: document.querySelector('#facility-select'),
+  facilityPicker: document.querySelector('#facility-picker'),
+  eastFacilityRadio: document.querySelector('#facility-east'),
+  eastFacilityCard: document.querySelector('#east-lift-card'),
+  eastFacilityName: document.querySelector('#east-lift-name'),
+  eastFacilityDetail: document.querySelector('#east-lift-detail'),
+  eastFacilityState: document.querySelector('#east-lift-state'),
+  eastFacilityFault: document.querySelector('#east-lift-fault'),
+  gardenFacilityRadio: document.querySelector('#facility-garden'),
+  gardenFacilityCard: document.querySelector('#garden-lift-card'),
+  gardenFacilityName: document.querySelector('#garden-lift-name'),
+  gardenFacilityDetail: document.querySelector('#garden-lift-detail'),
+  gardenFacilityState: document.querySelector('#garden-lift-state'),
+  gardenFacilityFault: document.querySelector('#garden-lift-fault'),
   webmcpStatus: document.querySelector('#operator-webmcp-status'),
   webmcpStatusText: document.querySelector('#operator-webmcp-text'),
   visitorLink: document.querySelector('#visitor-link'),
-  facilityList: document.querySelector('#facility-list'),
   armButton: document.querySelector('#arm-outage-button'),
   outageNowButton: document.querySelector('#outage-now-button'),
   armedState: document.querySelector('#armed-state'),
@@ -57,6 +70,17 @@ const elements = {
   proofResources: document.querySelector('#proof-resources'),
   proofPhase: document.querySelector('#proof-phase'),
   proofExplanation: document.querySelector('#proof-explanation'),
+  bookingImpact: document.querySelector('#booking-impact'),
+  bookingImpactHeading: document.querySelector('#booking-impact-heading'),
+  bookingImpactMessage: document.querySelector('#booking-impact-message'),
+  bookingImpactProof: document.querySelector('#booking-impact-proof'),
+  manualControlHeading: document.querySelector('#manual-control-heading'),
+  manualImpactNote: document.querySelector('#manual-impact-note'),
+  manualImpactConfirmation: document.querySelector('#manual-impact-confirmation'),
+  manualImpactConfirmationHeading: document.querySelector('#manual-impact-confirmation-heading'),
+  manualImpactConfirmationMessage: document.querySelector('#manual-impact-confirmation-message'),
+  confirmOutageButton: document.querySelector('#confirm-outage-button'),
+  cancelOutageButton: document.querySelector('#cancel-outage-button'),
   log: document.querySelector('#operator-log'),
   liveStatus: document.querySelector('#operator-live-status'),
   liveText: document.querySelector('#operator-live-text'),
@@ -73,6 +97,9 @@ let operatorTools = [];
 let registeredTools = false;
 let lastSuccessfulRefresh = 0;
 let standingNotice = '';
+let lastBookingImpactSignature = 'NONE';
+let pendingOutageConfirmationId = null;
+let outageRequestInFlight = false;
 
 function setHtml(element, html) {
   if (element.innerHTML !== html) element.innerHTML = html;
@@ -229,20 +256,72 @@ function formatTime(iso) {
 }
 
 function renderFacilities(snapshot) {
-  const facilities = Object.values(snapshot.resources).filter((resource) => resource.kind === 'FACILITY');
-  setHtml(elements.facilityList, facilities.map((facility) => {
+  const pendingId = snapshot.demo.pendingOutageResourceId;
+  const views = [
+    {
+      id: 'east-lift',
+      radio: elements.eastFacilityRadio,
+      card: elements.eastFacilityCard,
+      name: elements.eastFacilityName,
+      detail: elements.eastFacilityDetail,
+      status: elements.eastFacilityState,
+      fault: elements.eastFacilityFault,
+    },
+    {
+      id: 'garden-lift',
+      radio: elements.gardenFacilityRadio,
+      card: elements.gardenFacilityCard,
+      name: elements.gardenFacilityName,
+      detail: elements.gardenFacilityDetail,
+      status: elements.gardenFacilityState,
+      fault: elements.gardenFacilityFault,
+    },
+  ];
+
+  for (const view of views) {
+    const facility = snapshot.resources[view.id];
+    if (!facility) continue;
     const out = facility.status === 'OUT_OF_SERVICE';
-    return `
-      <article class="facility-card">
-        <span class="facility-symbol" aria-hidden="true">${facility.id === 'east-lift' ? 'L2' : 'L4'}</span>
-        <span>
-          <strong>${escapeHtml(facility.label)}</strong>
-          <small>${out ? escapeHtml(facility.outageReason ?? 'Outage reported') : 'Telemetry current · doors and power normal'}</small>
-        </span>
-        <span class="facility-state${out ? ' out' : ''}">${out ? 'OUT OF SERVICE' : 'OPERATIONAL'}</span>
-      </article>
-    `;
-  }).join(''));
+    const armed = pendingId === view.id;
+    view.name.textContent = facility.label;
+    view.detail.textContent = out
+      ? facility.outageReason ?? 'Outage reported'
+      : 'Synthetic demo · doors and power normal';
+    view.status.textContent = out ? 'OUT OF SERVICE' : 'OPERATIONAL';
+    view.status.classList.toggle('out', out);
+    view.card.classList.toggle('out', out);
+    view.card.classList.toggle('armed', armed);
+    view.fault.hidden = !armed;
+    view.radio.setAttribute(
+      'aria-describedby',
+      `${view.detail.id} ${view.status.id}${armed ? ` ${view.fault.id}` : ''}`,
+    );
+  }
+}
+
+function renderBookingImpact(snapshot) {
+  const impact = bookingImpactView(snapshot);
+  if (!impact.visible) {
+    elements.bookingImpact.hidden = true;
+    lastBookingImpactSignature = 'NONE';
+    return impact;
+  }
+
+  if (impact.signature !== lastBookingImpactSignature) {
+    // Populate while hidden so role=alert announces one complete statement, not
+    // the old heading followed by three descendant rewrites. Do not move focus:
+    // this can arrive through the one-second poll while an operator is using a
+    // different control.
+    elements.bookingImpact.hidden = true;
+    elements.bookingImpactHeading.textContent = impact.heading;
+    elements.bookingImpactMessage.textContent = impact.message;
+    elements.bookingImpactProof.textContent = impact.proof;
+    elements.bookingImpact.hidden = false;
+  } else {
+    elements.bookingImpact.hidden = false;
+  }
+  lastBookingImpactSignature = impact.signature;
+  return impact;
 }
 
 function renderLog(snapshot) {
@@ -260,7 +339,7 @@ function renderLog(snapshot) {
           <strong>${escapeHtml(auditTitle(entry, snapshot))}</strong>
           <small>${escapeHtml(entry.message ?? '')}</small>
         </span>
-        <span class="audit-version">rev ${entry.resourceVersionBefore}→${entry.resourceVersionAfter}</span>
+        <span class="audit-version">Venue revision ${entry.resourceVersionBefore}→${entry.resourceVersionAfter}</span>
       </li>
     `;
   }).join(''));
@@ -275,7 +354,12 @@ function render(snapshot) {
   // judge is handed. These controls now follow the selected facility.
   const facilityId = selectedFacility();
   const label = facilityLabel(snapshot, facilityId);
-  const eastOut = snapshot.resources[facilityId]?.status === 'OUT_OF_SERVICE';
+  const selectedOut = snapshot.resources[facilityId]?.status === 'OUT_OF_SERVICE';
+  const selectedUsesBooking = Boolean(snapshot.booking?.resourceIds?.includes(facilityId));
+  const confirmationOpen = pendingOutageConfirmationId === facilityId
+    && selectedUsesBooking
+    && !selectedOut;
+  if (pendingOutageConfirmationId && !confirmationOpen) pendingOutageConfirmationId = null;
   // A pending fault belongs to the venue, not to whichever lift the selector
   // happens to be showing. Keying the banner to the selection meant an armed
   // Garden fault vanished the moment the selector moved to East, the page then
@@ -286,26 +370,57 @@ function render(snapshot) {
   const pendingId = snapshot.demo.pendingOutageResourceId;
   const pendingLabel = pendingId ? snapshot.resources[pendingId]?.label ?? pendingId : '';
   const armed = Boolean(pendingId);
+  const raceIntro = raceIntroView(snapshot, { facilityId });
   elements.version.textContent = String(snapshot.resourceVersion);
   elements.proofBookings.textContent = String(snapshot.atomicity.bookingCount);
   elements.proofResources.textContent = String(snapshot.atomicity.reservedResourceCount);
-  elements.proofPhase.textContent = snapshot.phase;
-  elements.proofExplanation.textContent = snapshot.atomicity.reservedResourceCount
-    ? `${snapshot.atomicity.reservedResourceCount} reservable resources committed; entrance route and lift were revalidated in the same transaction.`
-    : 'Reservable: wheelchair space, companion seat and host slot. Revalidated: entrance route and lift.';
+  elements.proofPhase.textContent = operatorPhaseLabel(snapshot.phase);
+  const bookingImpact = renderBookingImpact(snapshot);
+  elements.proofExplanation.textContent = bookingImpact.visible
+    ? `${snapshot.atomicity.reservedResourceCount} reservable resources remain held, but ${bookingImpact.affectedLabels.join(' and ')} is now out of service. The confirmed route is disrupted.`
+    : snapshot.atomicity.reservedResourceCount
+      ? `${snapshot.atomicity.reservedResourceCount} resources committed together; route and lift were rechecked.`
+      : 'Space, seat and host commit together; route and lift are rechecked.';
   // Toggling `hidden` on the banner alone never reaches a screen reader, so
   // the transition is announced explicitly, naming the lift that is armed.
   if (armed && elements.armedState.hidden) announce(`Fault armed on ${pendingLabel} for the next confirmation.`);
   if (elements.armedFacility) elements.armedFacility.textContent = pendingLabel;
   elements.armedState.hidden = !armed;
-  disableSafely(elements.armButton, eastOut || armed);
-  elements.armButton.textContent = armed ? `Fault armed on ${pendingLabel}` : eastOut ? `${label} is offline` : `Arm ${label} fault`;
+  disableSafely(elements.armButton, !raceIntro.canArm);
+  elements.armButton.textContent = snapshot.phase === 'CONFIRMED'
+    ? 'Safe-failure test complete — reset demo to run again'
+    : armed
+    ? `Fault armed on ${pendingLabel}`
+    : selectedOut
+      ? `${label} is out of service`
+      : `Arm a confirmation fault on ${label}`;
   // These two were static markup. Parameterising the endpoints without
   // parameterising the text produced buttons that acted on Garden Lift while
   // reading "East Lift" - measured on the deployed page. A control that names
   // the wrong thing it is about to do is worse than one that cannot do it.
-  elements.outageNowButton.textContent = `Take ${label} offline now`;
-  elements.restoreButton.textContent = `Put ${label} back in service`;
+  elements.manualControlHeading.textContent = `Manual controls · ${label}`;
+  elements.manualImpactNote.hidden = !selectedUsesBooking;
+  if (selectedUsesBooking) {
+    elements.manualImpactNote.textContent = selectedOut
+      ? `Booking ${snapshot.booking.receipt} still uses this offline lift. The route is disrupted; the booking stays active.`
+      : `Booking ${snapshot.booking.receipt} uses this lift. Taking it offline will disrupt the route; the booking stays active.`;
+  }
+  elements.outageNowButton.textContent = selectedUsesBooking && !selectedOut
+    ? `Review impact before taking ${label} offline`
+    : `Take ${label} offline`;
+  elements.outageNowButton.classList.toggle('booking-risk', selectedUsesBooking && !selectedOut);
+  elements.outageNowButton.setAttribute('aria-expanded', String(confirmationOpen));
+  elements.manualImpactConfirmation.hidden = !confirmationOpen;
+  elements.confirmOutageButton.disabled = outageRequestInFlight;
+  elements.cancelOutageButton.disabled = outageRequestInFlight;
+  if (confirmationOpen) {
+    elements.manualImpactConfirmationMessage.textContent = `Booking ${snapshot.booking.receipt} uses ${label}. `
+      + 'Taking it offline will break the confirmed route. The booking and held resources will stay active. '
+      + 'This demo only shows an on-page warning—no email, SMS, cancellation or reroute.';
+    elements.confirmOutageButton.textContent = `Take ${label} offline anyway`;
+    elements.cancelOutageButton.textContent = `Keep ${label} in service`;
+  }
+  elements.restoreButton.textContent = `Restore ${label}`;
   // The blurb explaining the arm button sits above the selector and said "East
   // Lift" whatever was chosen, so the sentence and the button under it named
   // two different lifts.
@@ -313,9 +428,9 @@ function render(snapshot) {
   // operator to arm a fault in every state, including the two the venue refuses
   // - a lift already offline, and a venue already holding a pending fault - and
   // the line below disabled the button while the sentence still asked for it.
-  if (elements.raceIntro) elements.raceIntro.textContent = raceIntroView(snapshot, { facilityId }).text;
-  disableSafely(elements.outageNowButton, eastOut);
-  disableSafely(elements.restoreButton, !eastOut);
+  if (elements.raceIntro) elements.raceIntro.textContent = raceIntro.text;
+  disableSafely(elements.outageNowButton, selectedOut || outageRequestInFlight);
+  disableSafely(elements.restoreButton, !selectedOut);
   renderFacilities(snapshot);
   renderLog(snapshot);
 }
@@ -324,7 +439,7 @@ async function refresh() {
   const payload = await api('/api/state', { method: 'GET', headers: {} });
   lastSuccessfulRefresh = Date.now();
   elements.liveStatus.classList.remove('stale');
-  elements.liveText.textContent = `Venue data live · ${new Date().toLocaleTimeString('en-GB', { hour12: false })}`;
+  elements.liveText.textContent = 'Venue data live';
   render(payload.state);
   return payload.state;
 }
@@ -369,20 +484,113 @@ elements.armButton.addEventListener('click', async () => {
   }
 });
 
-elements.outageNowButton.addEventListener('click', async () => {
+async function takeFacilityOffline(actedOn, { acknowledgedBookingReference = null } = {}) {
+  if (outageRequestInFlight) return;
+  outageRequestInFlight = true;
   disableSafely(elements.outageNowButton, true);
-  const actedOn = selectedFacility();
+  disableSafely(elements.confirmOutageButton, true);
   try {
+    // Quote the exact venue snapshot the operator reviewed. The server compares
+    // this revision and, where relevant, the acknowledged booking reference in
+    // the same synchronous step that takes the lift out of service. That closes
+    // the race where a visitor confirms after our refresh but before this POST.
+    const expectedVenueRevision = state?.resourceVersion;
     const payload = await api(operatorEndpoint(actedOn, 'outage'), {
       method: 'POST',
-      body: JSON.stringify({ reasonCode: 'LIFT_DOOR_FAULT' }),
+      body: JSON.stringify({
+        reasonCode: 'LIFT_DOOR_FAULT',
+        requireFreshOperatorReview: true,
+        expectedVenueRevision,
+        acknowledgedBookingReference,
+      }),
     });
+    pendingOutageConfirmationId = null;
     render(payload.state);
     showToast(`${facilityLabel(payload.state, actedOn)} is now out of service. The venue revision changed.`);
   } catch (error) {
+    if (['OPERATOR_REVIEW_STALE', 'BOOKING_IMPACT_CONFIRMATION_REQUIRED'].includes(error.code)) {
+      try {
+        await refresh();
+      } catch (refreshError) {
+        showToast(refreshError.message);
+        return;
+      }
+
+      const stillOperational = state?.resources?.[actedOn]?.status === 'OPERATIONAL';
+      const nowAffectsBooking = Boolean(
+        stillOperational && state?.booking?.resourceIds?.includes(actedOn),
+      );
+      if (nowAffectsBooking) {
+        pendingOutageConfirmationId = actedOn;
+        render(state);
+        elements.manualImpactConfirmationHeading.focus({ preventScroll: true });
+      } else {
+        pendingOutageConfirmationId = null;
+        render(state);
+        showToast('The venue changed. Review the selected lift before reporting an outage.');
+      }
+      return;
+    }
+
     showToast(error.message);
     await refresh();
+  } finally {
+    outageRequestInFlight = false;
+    if (state) render(state);
   }
+}
+
+elements.outageNowButton.addEventListener('click', async () => {
+  const actedOn = selectedFacility();
+  // The visitor can confirm between two one-second operator polls. Re-read the
+  // shared venue before deciding whether this is an ordinary outage or one
+  // that needs the inline booking-impact acknowledgement. Otherwise a stale
+  // READY snapshot lets the first click bypass the warning entirely.
+  disableSafely(elements.outageNowButton, true);
+  try {
+    await refresh();
+  } catch (error) {
+    showToast(error.message);
+    if (state) render(state);
+    return;
+  }
+  // Do not act on a lift the operator changed away from while the fresh read
+  // was in flight. They must review the newly selected control explicitly.
+  if (selectedFacility() !== actedOn) {
+    showToast('The selected lift changed. Review its controls before reporting an outage.');
+    render(state);
+    return;
+  }
+  if (state?.resources?.[actedOn]?.status !== 'OPERATIONAL') {
+    showToast(`${facilityLabel(state, actedOn)} is already out of service.`);
+    render(state);
+    return;
+  }
+  const affectsConfirmedBooking = Boolean(
+    state?.booking?.resourceIds?.includes(actedOn)
+      && state?.resources?.[actedOn]?.status !== 'OUT_OF_SERVICE',
+  );
+  if (affectsConfirmedBooking) {
+    pendingOutageConfirmationId = actedOn;
+    render(state);
+    elements.manualImpactConfirmationHeading.focus({ preventScroll: true });
+    return;
+  }
+  await takeFacilityOffline(actedOn);
+});
+
+elements.confirmOutageButton?.addEventListener('click', async () => {
+  const actedOn = pendingOutageConfirmationId;
+  if (!actedOn || actedOn !== selectedFacility()) return;
+  await takeFacilityOffline(actedOn, {
+    acknowledgedBookingReference: state?.booking?.receipt ?? null,
+  });
+});
+
+elements.cancelOutageButton?.addEventListener('click', () => {
+  pendingOutageConfirmationId = null;
+  if (state) render(state);
+  elements.outageNowButton.focus({ preventScroll: true });
 });
 
 elements.restoreButton?.addEventListener('click', async () => {
@@ -398,14 +606,17 @@ elements.restoreButton?.addEventListener('click', async () => {
   }
 });
 
-// Switching the lift has to repaint the labels and the disabled states, or the
-// buttons keep describing the facility that was selected a moment ago.
-elements.facilitySelect?.addEventListener('change', () => {
+// Switching the directly visible lift card repaints the labels and disabled
+// states without replacing the radio DOM. The one-second poll therefore cannot
+// steal keyboard focus from the operator.
+elements.facilityPicker?.addEventListener('change', () => {
+  pendingOutageConfirmationId = null;
   if (state) render(state);
 });
 
 elements.resetButton.addEventListener('click', async () => {
   try {
+    pendingOutageConfirmationId = null;
     const payload = await api('/api/demo/reset', { method: 'POST', body: '{}' });
     render(payload.state);
     showToast('All synthetic venue data restored.');
