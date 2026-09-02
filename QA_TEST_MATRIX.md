@@ -1,12 +1,12 @@
 # Adversarial QA test matrix
 
-Last full run: 2 September 2026, against application snapshot `32aafe7` and the
+Last full run: 2 September 2026, against application snapshot `72845b7` and the
 documentation state this file ships in.
 
 - `npm run verify` - **738/738**, exit 0, run on 2 September 2026 from this
   working tree, and again with `PORT=10000`, `NSWR_TRUST_PROXY=1` and
   `NSWR_TRUST_CF_CONNECTING_IP=1` set the way the build environment sets them.
-- `npm run test:browser` - **370/370**, exit 0, run on 2 September 2026 from this
+- `npm run test:browser` - **373/373**, exit 0, run on 2 September 2026 from this
   working tree on Chrome 152.0.7977.65 with Edge 152.0.4191.53. It needs a real
   browser, so no offline gate can reproduce that figure.
 
@@ -38,10 +38,11 @@ runs the whole suite against another Chromium build; whichever engine drives the
 run, one scenario also opens Microsoft Edge when it is installed and records
 what that engine really exposes.
 
-Latest measured result, on the commit this file ships in: **738/738 Node tests** and **370/370 Chrome checks**
-passed. The Node figure is reproducible offline from a clean checkout of that
-commit; the Chrome figure is a dated measurement rather than a computed one,
-because producing it needs a browser. Neither figure covers a later commit.
+Latest measured application snapshot, `72845b7`: **738/738 Node tests** and
+**373/373 Chrome checks** passed. The Node figure is reproducible offline from a
+clean checkout of that snapshot; the Chrome figure is a dated measurement rather
+than a computed one, because producing it needs a browser. Neither figure covers
+a later application change.
 
 Measured on 2 September 2026 in **Microsoft Edge 152.0.4191.53**, recorded rather
 than assumed: Edge exposes `document.modelContext`, registers all seven tools
@@ -195,7 +196,7 @@ exposed its browser, not whatever was driving it. The steps are:
 5. Use the visible confirmation button. Require a receipt, phase `CONFIRMED`,
    booking `NSWR-00244`, committed revision 2, `partialReservations: 0`, focus on
    the receipt heading and a final visitor surface of `4 read · 0 write`.
-6. On `/operator`, require `1 read · 2 write` on `32aafe7` and call
+6. On `/operator`, require `1 read · 2 write` on `72845b7` and call
    `get_facility_status`.
 7. Report East Lift L2 out of service through the operator tool. Require revision
    3, the booking still active, no automatic cancellation or reroute, and a
@@ -204,22 +205,24 @@ exposed its browser, not whatever was driving it. The steps are:
    warnings cleared and the booking still confirmed.
 9. Require no console errors or warnings on either page.
 
-**This case is not automated and no gate reproduces it.** Every other row in
-this document is asserted by `npm run verify` or `npm run test:browser`; this one
-is a manual run, driven by hand and recorded here. All nine checks passed on
-2 September 2026 against application build `32aafe7` in the ChatGPT desktop
-in-app browser.
+**This case is not automated and no gate reproduces it.** It is a manual run,
+driven by hand and recorded here. The Firefox fallback in `ENGINE-02` is also a
+manual check, and the Lighthouse figures in `QUALITY-01` come from reports stored
+outside this repository; the shipped test guards how those scores are described,
+not the measurements themselves. The remaining rows name the automated command
+or browser check that asserts them. All nine checks passed on 2 September 2026
+against application build `72845b7` in the ChatGPT desktop in-app browser.
 
 What that run observed is recorded in the numbered procedure above: `5 read / 1
 write` in `READY`; a readable incomplete-stage refusal; a human-confirmed East
 booking `NSWR-00244` at revision 2 with `partialReservations: 0`; an operator
 outage at revision 3 with persistent warnings and no automatic booking mutation;
-and a restore at revision 4 with the booking still confirmed. The final visitor
-surface was `4 read / 0 write`; the operator surface was `1 read / 2 write` on `32aafe7`.
-No
-console errors or warnings were present.
+and a restore at revision 4 with the booking still confirmed. The final
+`CONFIRMED` visitor surface was `4 read / 0 write`. On application build
+`72845b7`, the operator surface was `1 read / 2 write`. No console errors or
+warnings were present.
 
-That manual measurement covers the application files at `32aafe7`. A later
+That manual measurement covers the application files at `72845b7`. A later
 documentation-only commit does not imply a second browser run or broaden the
 evidence. Chrome results are not a substitute: ChatGPT desktop is a different
 host with its own tool surface and per-call review.

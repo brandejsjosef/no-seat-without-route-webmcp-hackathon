@@ -116,7 +116,7 @@ test('every suite is accounted for and the documented Node total is plausible', 
     `the matrix claims ${claimed[2]} Node tests but ${lowerBound} registrations are visible in ${suiteFiles.length} files, so the documented figure is stale`,
   );
   assert.ok(
-    /Node tests\*\* and \*\*\d+\/\d+ Chrome checks\*\*/.test(matrix),
+    /Node tests\*\*\s+and\s+\*\*\d+\/\d+ Chrome checks\*\*/.test(matrix),
     'both measured totals should be stated together',
   );
 });
@@ -632,14 +632,14 @@ test('the public-release history matches the clean repository snapshot', async (
   )].sort();
   assert.deepEqual(
     recordedShas,
-    ['32aafe7', '4e04f2b'],
+    ['4e04f2b', '72845b7'],
     'README may name only the clean repository root and the measured application snapshot',
   );
 });
 
 test('the manual ChatGPT case does not present itself as an automated gate', async () => {
-  // Every other row in the matrix is backed by a suite. This one is a manual
-  // run, and the difference stopped being visible once it was written in the
+  // This host-specific case is a manual run, and the difference stopped being
+  // visible once it was written in the
   // same voice as the rest. The marker is what keeps it honest; a future edit
   // that tidies it away would restore exactly the ambiguity it was added for.
   //
@@ -651,7 +651,7 @@ test('the manual ChatGPT case does not present itself as an automated gate', asy
   // documents carry this claim, so both are checked: guarding only the matrix
   // leaves the judge-facing README free to rot back to what it said before.
   const RECORDED_DATE = '2 September 2026';
-  const RECORDED_BUILD = '32aafe7';
+  const RECORDED_BUILD = '72845b7';
   const MONTHS = 'January|February|March|April|May|June|July|August'
     + '|September|October|November|December';
   // A sha other than the measured one may be named only while the sentence is
@@ -840,7 +840,7 @@ test('that guard recognises a wrong count and lets a dated one through', () => {
   assert.deepEqual(matches('reports the same **5 read · 2 write**, and completes'), ['5/2']);
   assert.deepEqual(matches('the host reports 4 read / 1 write'), ['4/1']);
   assert.deepEqual(matches('nothing numeric here at all'), []);
-  assert.equal(DATED.test('the measured build `32aafe7` reported 5 read · 1 write'), true);
+  assert.equal(DATED.test('the measured build `72845b7` reported 5 read · 1 write'), true);
   assert.equal(DATED.test('Chrome 151 with declarative WebMCP support shows **4 read, 2 write**'), false);
 });
 

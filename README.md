@@ -11,6 +11,9 @@ not a tool: the visitor presses that button.
 
 Synthetic data. No real ticket is ever issued.
 
+**[Open the live demo](https://no-seat-without-a-route.onrender.com)** — no
+account or setup required.
+
 ---
 
 ## The problem this is built around
@@ -21,11 +24,18 @@ companion seat was sold separately to someone else, or if nobody scheduled the h
 who opens the accessible entrance. If any link in that chain fails, the accessible
 seat may become unusable even though the seat itself exists.
 
-In the United States this is regulated rather than optional. The Justice
-Department's 2010 ticketing rules require accessible seating to be sold in the
-same manner, through the same channels and during the same hours as all other
-seating - online included. Which rule applies depends on who runs the venue:
-28 CFR 35.138 for public entities, 28 CFR 36.302(f) for public accommodations.
+US accessible-ticketing rules already treat accessibility as more than a
+courtesy. The Justice Department's rules require accessible seating to be sold
+through the same channels and during the same hours as other seating, online
+included. They also require enough information for a buyer to assess whether a
+location meets their accessibility needs. Which rule applies depends on who runs
+the venue: [28 CFR § 35.138](https://www.ecfr.gov/current/title-28/chapter-I/part-35/subpart-B/section-35.138)
+for public entities and [28 CFR § 36.302(f)](https://www.ecfr.gov/current/title-28/chapter-I/part-36/subpart-C/section-36.302)
+for public accommodations.
+
+Those rules provide context; they do not require this prototype's atomic route,
+live-lift and assistance model. This is a product experiment, not a claim of
+legal compliance.
 
 So the target is not "help disabled people with AI". The target is a server that
 refuses to sell an incomplete promise, through **every** channel it serves: the
@@ -157,7 +167,7 @@ offered at all, which is why a confirmed booking exposes no way to change it:
 
 | Page state and host | Read | Write | Tools |
 |---|---|---|---|
-| `READY` — ChatGPT desktop IAB | 5 | 1 | measured on the deployed application at `32aafe7`; imperative tools only |
+| `READY` — ChatGPT desktop IAB | 5 | 1 | measured on the deployed application at `72845b7`; imperative tools only |
 | `READY` — Chrome 152 with the full declarative `SubmitEvent` contract | 5 | 2 | the same, and the form as `set_access_requirements` |
 | `PLAN_READY` | 4 | 2 | `stage_access_bundle`, `clear_access_plan` |
 | `AWAITING_HUMAN_CONFIRMATION` | 4 | 1 | `clear_access_plan` only — nothing can confirm |
@@ -173,7 +183,7 @@ the last row counts every tool the browser exposes, not only the imperative ones
 The status badge and individual tool chips are derived from the tools the browser
 actually exposes (`document.modelContext.getTools()` where available). They do not
 assume that the declarative form exists. On 2 September 2026 the deployed
-application at `32aafe7` reported **5 read / 1 write** in the ChatGPT desktop
+application at `72845b7` reported **5 read / 1 write** in the ChatGPT desktop
 in-app browser and **5 read / 2 write** in Chrome 152. The host difference is the
 declarative form tool; it is not counted when that host does not expose it.
 
@@ -245,7 +255,7 @@ No account, no setup, nothing to install beyond a browser that speaks WebMCP.
    **5 read, 2 write**, because it also exposes the visible form. On a host
    without the declarative form contract - the ChatGPT desktop in-app browser is
    the one this was checked on - the same page is **5 read, 1 write**. Both
-   figures were measured on the application at `32aafe7`; see *Verified against
+   figures were measured on the application at `72845b7`; see *Verified against
    a real browser* for the scope of each run.
 2. Ask: *"Find a step-free plan for me and one companion. My chair is 72 cm wide,
    keep the route under 80 metres, use a quieter entrance and arrange someone to
@@ -367,7 +377,7 @@ itself. Both cases were found on Chrome 151, not in theory.
 
 ## Verified against a real browser
 
-Driven through Chrome 151's own implementation — `document.modelContext.getTools()`
+Driven through Chrome 152's own implementation — `document.modelContext.getTools()`
 and `executeTool()` over the DevTools protocol, in a throwaway profile with
 `chrome://flags/#enable-webmcp-testing` enabled. Every step below is a recorded
 result, not a description of intent, and every one of them is asserted by
@@ -413,9 +423,9 @@ the server is announced and releases the button rather than sitting on
 
 The deployed visitor and operator flows were exercised by hand in the ChatGPT
 desktop in-app browser **on 2 September 2026, against application build
-`32aafe7`**. This is a manual measurement; no automated gate reproduces it. The
+`72845b7`**. This is a manual measurement; no automated gate reproduces it. The
 visitor's `READY` surface exposed **5 read / 1 write**, while the operator exposed
-**1 read / 2 write** on `32aafe7`. The host did not expose the declarative
+**1 read / 2 write** on `72845b7`. The host did not expose the declarative
 `set_access_requirements` form tool.
 
 The run created an East route, returned a readable refusal for an incomplete
@@ -427,7 +437,7 @@ the venue to revision 3 and left the booking active while both pages displayed a
 persistent route-disruption warning. Restoring the lift advanced it to revision
 4, cleared both warnings and left the receipt confirmed. Neither page produced a
 console error or warning. This measurement covers the application files at
-`32aafe7`; later documentation-only commits do not expand its scope.
+`72845b7`; later documentation-only commits do not expand its scope.
 `QA_TEST_MATRIX.md` carries the exact manual procedure.
 
 ## Limits, stated plainly
