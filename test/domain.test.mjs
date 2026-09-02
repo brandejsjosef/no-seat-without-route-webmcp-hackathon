@@ -84,7 +84,7 @@ test('replan excludes failed lift and stages a complete alternative', () => {
   assert.equal(store.snapshot().atomicity.reservedResourceCount, 0);
 });
 
-test('commit requires explicit human acceptance', () => {
+test('commit requires explicit acceptance', () => {
   const store = freshStore();
   const plan = prepareInitial(store);
   const confirmation = store.prepareConfirmation(plan.id);

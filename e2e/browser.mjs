@@ -767,7 +767,7 @@ async function main() {
          && judgeWalkthrough.replacement.planState === 'Ready for review'
          && judgeWalkthrough.replacement.venueRevision === 2,
       JSON.stringify({ activity: judgeWalkthrough.replanActivity, replacement: judgeWalkthrough.replacement }));
-    check('judge step 9 keeps final acceptance human and produces one atomic receipt',
+    check('judge step 9 keeps final acceptance on the visible page-control path and produces one atomic receipt',
       judgeWalkthrough.confirmationActivity.actor === 'Human confirmation'
         && judgeWalkthrough.confirmationActivity.action === 'commit booking'
          && /^NSWR-\d{5}$/.test(judgeWalkthrough.receipt.reference)
