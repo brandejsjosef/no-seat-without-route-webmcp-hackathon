@@ -17,8 +17,9 @@ checks are rerun after documentation-only corrections.
 **What this record is, and what it is not.** It is a dated measurement, written
 by hand after a run. It is not cryptographic proof that the checkout you are
 reading was the one measured, and it cannot be: a file cannot carry the hash of
-the commit it is part of. The guard beside it checks that the record is
-internally consistent and names exactly one build - not that any run happened.
+the commit it is part of. The guards beside it check that each recorded
+measurement is internally consistent and scoped to the build it names - not that
+any run happened.
 The exact final SHA and the full command output live in the release report,
 outside this commit, where they can name the build without being part of it.
 Four matching frontend hashes prove those four files and say nothing about the
@@ -68,7 +69,7 @@ or certification.
 
 | ID | Attack or behaviour | Required result | Automated evidence |
 |---|---|---|---|
-| INPUT-01 | Call every **imperative** write tool with `{}`: `find_access_bundle`, `stage_access_bundle`, `replan_access_bundle`, `clear_access_plan`, `report_facility_outage`, `restore_facility` | Every one of the six refuses locally with a readable message naming what is missing, and issues zero HTTP requests. The six are read off the registered surfaces rather than typed into the test, so a new write tool is covered the day it is added. The declarative `set_access_requirements` is deliberately outside that set: Chrome registers it from the markup in `public/index.html`, never from `public/tools.mjs`, and by design it retains omitted visible values and can stay pending for human submission - HITL-01 and HITL-03 cover it instead, in a browser | `test/tools.test.mjs` — *malformed tool inputs are refused before any HTTP call*; `e2e/browser.mjs` |
+| INPUT-01 | Call every **imperative** write tool with `{}`: `find_access_bundle`, `stage_access_bundle`, `replan_access_bundle`, `clear_access_plan`, `report_facility_outage`, `restore_facility` | Every one of the six refuses locally with a readable message naming what is missing, and issues zero HTTP requests. The six are read off the registered surfaces rather than typed into the test, so a new write tool is covered the day it is added. The declarative `set_access_requirements` is deliberately outside that set: Chrome registers it from the markup in `public/index.html`, never from `public/tools.mjs`, and by design it retains omitted visible values and can stay pending until the visible form is submitted - HITL-01 and HITL-03 cover it instead, in a browser | `test/tools.test.mjs` — *malformed tool inputs are refused before any HTTP call*; `e2e/browser.mjs` |
 | INPUT-02 | Imperative missing, unknown, wrong-type, out-of-range and invalid-enum arguments | Rejected by the tool wrapper; domain state unchanged | `test/tools.test.mjs` |
 | INPUT-03 | Blank required number fields in the visible form | Native form validation blocks submission | `e2e/browser.mjs` |
 | STATE-01 | Facility fails after a plan is staged | Stale plan refused; zero partial reservations | `test/domain.test.mjs`, `e2e/browser.mjs` |
@@ -79,8 +80,8 @@ or certification.
 | STATE-06 | Arm an outage for an already failed facility | Refused without changing venue state | `test/hardening.test.mjs` — *outage validation and arming stay strict after a lift is already down* |
 | STATE-07 | Submit an invalid confirmation while a fault is armed | Confirmation is rejected before the fault can mutate state | `test/hardening.test.mjs` — *an invalid confirmation cannot trigger the armed venue fault* |
 | STATE-08 | Omit the outage reason | Refused; facility and revision unchanged | `test/hardening.test.mjs` — *an outage reason is required instead of silently defaulted*; `e2e/browser.mjs` |
-| HITL-01 | Execute declarative `set_access_requirements` | It remains pending until the visitor presses the visible submit button, then completes | `e2e/browser.mjs` |
-| HITL-02 | Inspect every page state for a tool that could prepare or commit a confirmation | No registered WebMCP tool can prepare or commit a booking. Confirmation is performed through the visible page flow; direct authenticated HTTP is outside the tool-surface boundary, and the server does not claim to prove a human was present | `test/tools.test.mjs` — *no registered tool can prepare or commit a booking, in any page state*; contract eval, `e2e/browser.mjs` |
+| HITL-01 | Execute declarative `set_access_requirements` | It remains pending until the visible form is submitted, then completes | `e2e/browser.mjs` |
+| HITL-02 | Inspect every page state for a tool that could prepare or commit a confirmation | No registered WebMCP tool can prepare or commit a booking. Confirmation is performed through the visible page flow; direct HTTP with a valid demo session token is outside the tool-surface boundary, and the server does not claim to prove a human was present | `test/tools.test.mjs` — *no registered tool can prepare or commit a booking, in any page state*; contract eval, `e2e/browser.mjs` |
 | HITL-03 | Send declarative zero, range, wrong-type, null or unknown-key values | Invocation rejects instead of hanging; the form resets and becomes inactive. Every request the page issues is recorded through CDP `Network.requestWillBeSent`, and the zero-valued window is read twice over that log: every request is a `GET`, and no request's parsed `pathname` is `/api/plans`, `/api/session`, `/api/demo` or a path below one. The pathname is compared, not searched for in the URL, so neither a demo id nor a query parameter can stand in for an endpoint. A successful request would be invisible to a failed-response count, and a `GET` of somebody's plan would be invisible to a method check | `e2e/browser.mjs` |
 | TOOLS-01 | Move through all seven declared phases: READY, PLAN_READY, AWAITING_HUMAN_CONFIRMATION, PLAN_STALE, REPLAN_READY, NO_ALTERNATIVE, CONFIRMED | In each one the browser registry is the **exact** sorted set the phase declares, the visible badge matches the declared read/write counts, and the chips match the registry. Expectations are derived from the same `availableIn` declarations the page registers from, never typed by hand. The run fails if any phase was never reached | contract eval, `e2e/browser.mjs` |
 | TOOLS-02 | Invoke each tool marked read-only on **both** surfaces, the operator's `get_facility_status` included | Venue state is byte-for-byte unchanged after each one; the covered set is asserted by name so a new read-only tool cannot slip through unexercised | `test/tools.test.mjs` — *a tool marked read-only leaves the venue untouched* |
@@ -178,10 +179,10 @@ error fails the run.
 
 The browser gate contains one named scenario that follows the recorded demo in
 order: native tool discovery, `find_access_bundle`, `stage_access_bundle`, a
-human confirmation overtaken by the armed East Lift fault, the visible
+visible page confirmation overtaken by the armed East Lift fault, the visible
 `STALE_RESOURCE_VERSION` refusal with zero partial reservations,
-`explain_access_refusal`, `replan_access_bundle`, and the final human commit of
-the Garden route. It also asserts that the first commit is a clean HTTP 200
+`explain_access_refusal`, `replan_access_bundle`, and the final page-control
+commit of the Garden route. It also asserts that the first commit is a clean HTTP 200
 exchange carrying domain status 409, that the second commit succeeds, and that
 the whole scenario adds no failed request, console error or warning. Because
 `npm run verify:all` includes the browser suite, this exact walkthrough is a
@@ -193,8 +194,8 @@ Lessons fixed into that gate:
   business refusals need a typed first-party response envelope; raw API callers
   still keep conventional 4xx semantics.
 - Tool activity is evidence of WebMCP only when the native browser tool actually
-  ran. Clicking **Confirm** is deliberately recorded as human activity because
-  confirmation is not and must not become a WebMCP tool.
+  ran. Clicking **Confirm** is recorded as the page-control path (labelled
+  `human-ui`), not as a WebMCP call; that label is not proof of who clicked it.
 - The activity strip shows the latest action, so the scenario captures each tool
   entry immediately before a later action legitimately replaces it.
 - A browser harness must never suppress a response with a promise that cannot
@@ -220,20 +221,24 @@ exposed its browser, not whatever was driving it. The steps are:
    in-app-browser surface. The declarative form tool may be absent on this host.
 3. Call `get_event_access_state`; require phase `READY`, revision 1 and both lifts
    operational. Find the East route with a complete requirement set.
-4. Call `stage_access_bundle` without `expectedVenueRevision`; require a readable
-   `MISSING_TOOL_ARGUMENTS` refusal and no stuck call. Call it again with the
-   plan id and revision 1; require `AWAITING_HUMAN_CONFIRMATION`.
-5. Use the visible confirmation button. Require a receipt, phase `CONFIRMED`,
-   booking `NSWR-00244`, committed revision 2, `partialReservations: 0`, focus on
-   the receipt heading and a final visitor surface of `4 read · 0 write`.
-6. On `/operator`, require `1 read · 2 write` on `72845b7` and call
+4. Call `stage_access_bundle` with the plan id and revision 1; require
+   `AWAITING_HUMAN_CONFIRMATION` and a visible East route ready for review.
+5. Arm the East Lift L2 fault and use the visible confirmation button. Require
+   `STALE_RESOURCE_VERSION`, venue revision 2, `partialReservations: 0`, no
+   receipt, and a `5 read · 1 write` recovery surface.
+6. Call `explain_access_refusal`; require the failed `LIFT_OPERATIONAL` rule,
+   plan revision 1, venue revision 2, the Garden route and `REPLAN`. Call
+   `replan_access_bundle`; require a staged Garden route, then accept it through
+   the visible page control. Require phase `CONFIRMED`, committed revision 3,
+   `partialReservations: 0` and a final visitor surface of `4 read · 0 write`.
+7. On `/operator`, require `1 read · 2 write` on `2d8b5be` and call
    `get_facility_status`.
-7. Report East Lift L2 out of service through the operator tool. Require revision
-   3, the booking still active, no automatic cancellation or reroute, and a
-   persistent disruption warning on both pages while the receipt remains visible.
-8. Restore East Lift L2 through the operator tool. Require revision 4, both
-   warnings cleared and the booking still confirmed.
-9. Require no console errors or warnings on either page.
+8. Restore East Lift L2, report the booked Garden Lift L4 out of service, then
+   restore it. Require revisions 4, 5 and 6 respectively. During the Garden
+   outage the booking must remain active, with no automatic cancellation or
+   reroute and a persistent disruption warning; restoration must clear the
+   warning while leaving the booking confirmed.
+9. Require no console errors or warnings on either page throughout the run.
 
 **This case is not automated and no gate reproduces it.** It is a manual run,
 driven by hand and recorded here. The Firefox fallback in `ENGINE-02` is also a
@@ -241,26 +246,26 @@ manual check, and the Lighthouse figures in `QUALITY-01` come from reports store
 outside this repository; the shipped test guards how those scores are described,
 not the measurements themselves. The remaining rows name the automated command
 or browser check that asserts them. All nine checks passed on 2 September 2026
-against application build `72845b7` in the ChatGPT desktop in-app browser.
+against deployed release `2d8b5be` in the ChatGPT desktop in-app browser.
 
 What that run observed is recorded in the numbered procedure above: `5 read / 1
-write` in `READY`; a readable incomplete-stage refusal; a human-confirmed East
-booking `NSWR-00244` at revision 2 with `partialReservations: 0`; an operator
-outage at revision 3 with persistent warnings and no automatic booking mutation;
-and a restore at revision 4 with the booking still confirmed. The final
-`CONFIRMED` visitor surface was `4 read / 0 write`. On application build
-`72845b7`, the operator surface was `1 read / 2 write`. No console errors or
-warnings were present.
+write` in `READY`; a stale East-plan refusal at revision 2 with
+`partialReservations: 0`; a Garden replacement confirmed at revision 3; and an
+operator-driven restore, booked-route outage and second restore at revisions 4,
+5 and 6. The booking remained confirmed through the post-booking outage, with no
+automatic cancellation or reroute. The final `CONFIRMED` visitor surface was
+`4 read / 0 write`. Operator surface on deployed release `2d8b5be`: `1 read / 2 write`.
+No console errors or warnings were present.
 
-That manual measurement covers the application files at `72845b7`. A later
-documentation-only commit does not imply a second browser run or broaden the
-evidence. Chrome results are not a substitute: ChatGPT desktop is a different
-host with its own tool surface and per-call review.
+That manual measurement covers the application files at `2d8b5be`.
+Chrome results are not a substitute: ChatGPT desktop is a different host with its
+own tool surface and per-call review.
 
 ## Interpretation note
 
 Chrome's `set_access_requirements` showing **In Progress** is intentional only
-when the resulting visible form is valid and waiting for the visitor to submit.
+when the resulting visible form is valid and waiting for the visible form to be
+submitted.
 Invalid numeric input must reject and reset immediately. Omitted declarative
 fields keep their visible form values; strict explicit completeness is enforced
 by the imperative `find_access_bundle`, not Chrome's current form-filling layer.

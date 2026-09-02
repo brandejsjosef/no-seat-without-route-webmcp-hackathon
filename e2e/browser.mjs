@@ -731,7 +731,7 @@ async function main() {
         && judgeWalkthrough.stageActivity.action === 'stage_access_bundle'
         && judgeWalkthrough.staged.audit.includes('WebMCP · stage_access_bundle'),
       JSON.stringify({ activity: judgeWalkthrough.stageActivity, audit: judgeWalkthrough.staged.audit }));
-    check('judge step 4 presents the complete East plan before human confirmation',
+    check('judge step 4 presents the complete East plan before page confirmation',
       judgeWalkthrough.staged.route.includes('East Entrance')
         && judgeWalkthrough.staged.route.includes('East Lift L2')
         && judgeWalkthrough.staged.decisionVisible === true
@@ -746,7 +746,7 @@ async function main() {
         && judgeWalkthrough.refusal.partial === '0'
         && judgeWalkthrough.refusal.receiptHidden === true,
       JSON.stringify(judgeWalkthrough.refusal));
-    check('judge step 6 labels the confirmation as human activity, never as a WebMCP call',
+    check('judge step 6 labels the confirmation as page-control activity, never as a WebMCP call',
       judgeWalkthrough.refusalActivity.actor === 'Human visitor'
         && judgeWalkthrough.refusalActivity.action === 'confirmation refused'
         && judgeWalkthrough.refusalActivity.result.includes('0 resources booked'),
@@ -1002,13 +1002,13 @@ async function main() {
     check('the safe-failure walkthrough adds no red console entry',
       consoleErrors.length === consoleBeforeStaleCommit,
       JSON.stringify(consoleErrors.slice(consoleBeforeStaleCommit)));
-    check('the page labels confirmation as a human refusal rather than a WebMCP tool call',
+    check('the page labels confirmation as a page-control refusal rather than a WebMCP tool call',
       r.refusedActivity.actor === 'Human visitor'
         && r.refusedActivity.action === 'confirmation refused'
         && r.refusedActivity.result.includes('0 resources booked'),
       JSON.stringify(r.refusedActivity));
 
-    scenario('the agent replans and the visitor confirms the replacement');
+    scenario('the agent replans and the visible page control confirms the replacement');
     const recover = await run(`
       const alertBeforeReplan = document.querySelector('#a11y-alert').textContent;
       const status = await call('get_access_bundle_status', {});
@@ -1047,7 +1047,7 @@ async function main() {
     check('this replacement really changed the route rather than only its revision',
       rec.changedRoutePrecondition === true,
       JSON.stringify(rec.replanned.plan?.route));
-    check('the booking exists after the visitor confirms', Boolean(rec.after.booking?.reference), JSON.stringify(rec.after.booking));
+    check('the booking exists after the visible page control confirms', Boolean(rec.after.booking?.reference), JSON.stringify(rec.after.booking));
     check('the booking reports zero partial reservations', rec.after.booking?.partialReservations === 0, JSON.stringify(rec.after.booking));
     check('the event state labels committed resources without calling them partial',
       rec.eventState.reservedResourceCount === 3 && !Object.hasOwn(rec.eventState, 'partialReservations'),
@@ -1330,7 +1330,7 @@ async function main() {
         && dec.agentNoticeLiveTargets.length === 1
         && dec.agentNoticeLiveTargets[0] === 'a11y-status',
       JSON.stringify({ notice: dec.agentNotice, liveTargets: dec.agentNoticeLiveTargets }));
-    check('the call does not settle until a person submits', dec.settledEarly === false, 'it resolved without anyone pressing the button');
+    check('the call does not settle until the visible form is submitted', dec.settledEarly === false, 'it resolved before the visible form was submitted');
     check('submitting hands the result back to the agent', dec.result?.submittedByVisitor === true && Boolean(dec.result?.planId), JSON.stringify(dec.result));
     check('the form tool is withdrawn once a plan exists', dec.offeredAfterPlanning === false, 'it stayed registered after the page left READY');
 

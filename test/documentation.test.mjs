@@ -432,10 +432,10 @@ const WALKTHROUGH = [
   },
   {
     step: 'Declarative tool fills the form',
-    result: 'width 72 → 68; call stays open, resolves only when the visitor submits, returning the staged plan; withdrawn once the form can no longer be used',
+    result: 'width 72 → 68; call stays open, resolves only when the visible form is submitted, returning the staged plan; withdrawn once the form can no longer be used',
     checks: [
       'an agent can fill the visible form',
-      'the call does not settle until a person submits',
+      'the call does not settle until the visible form is submitted',
       'submitting hands the result back to the agent',
       'the form tool is withdrawn once a plan exists',
     ],
@@ -486,11 +486,11 @@ const WALKTHROUGH = [
     ],
   },
   {
-    step: 'Agent replans, visitor confirms',
+    step: 'Agent replans, page control confirms',
     result: 'Garden Entrance route booked, revision 3, 0 partial reservations',
     checks: [
       'the replacement route enters by the Garden Entrance',
-      'the booking exists after the visitor confirms',
+      'the booking exists after the visible page control confirms',
       'the booking commits exactly one revision past the refusal',
       'the booking reports zero partial reservations',
     ],
@@ -617,7 +617,7 @@ test('the Chrome walkthrough table is exactly the contract the browser suite ass
   }
 });
 
-test('the public-release history matches the clean repository snapshot', async () => {
+test('the README names only the intended release and evidence revisions', async () => {
   const readme = await read('README.md');
   const start = readme.indexOf('## Project history');
   assert.ok(start > 0, 'the README should contain a Project history section');
@@ -632,8 +632,8 @@ test('the public-release history matches the clean repository snapshot', async (
   )].sort();
   assert.deepEqual(
     recordedShas,
-    ['4e04f2b', '72845b7'],
-    'README may name only the clean repository root and the measured application snapshot',
+    ['2d8b5be', '4e04f2b', 'a135303'],
+    'README may name only the intended release and evidence revisions',
   );
 });
 
@@ -651,7 +651,7 @@ test('the manual ChatGPT case does not present itself as an automated gate', asy
   // documents carry this claim, so both are checked: guarding only the matrix
   // leaves the judge-facing README free to rot back to what it said before.
   const RECORDED_DATE = '2 September 2026';
-  const RECORDED_BUILD = '72845b7';
+  const RECORDED_BUILD = '2d8b5be';
   const MONTHS = 'January|February|March|April|May|June|July|August'
     + '|September|October|November|December';
   // A sha other than the measured one may be named only while the sentence is
@@ -752,7 +752,7 @@ test('the manual ChatGPT case does not present itself as an automated gate', asy
   assert.ok(readmeStart > 0, 'the README should record the ChatGPT desktop run');
   const paragraph = readme.slice(readmeStart, readme.indexOf('\n## ', readmeStart));
   assert.ok(
-    /no automated\s+gate reproduces it|no automated gate reproduces it/i.test(paragraph),
+    /no automated\s+gate\s+reproduces\s+it/i.test(paragraph),
     'the README must say the ChatGPT desktop run is not reproduced by any gate',
   );
   qualify('README.md', paragraph);
