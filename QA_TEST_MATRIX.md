@@ -1,18 +1,18 @@
 # Adversarial QA test matrix
 
-Last full run: 2 September 2026, against the commit this file ships in. The
-previous run belonged to `309cbed`; these numbers do not.
+Last full run: 2 September 2026, against application snapshot `32aafe7` and the
+documentation state this file ships in.
 
-- `npm run verify` - **735/735**, exit 0, run on 2 September 2026 from this
+- `npm run verify` - **736/736**, exit 0, run on 2 September 2026 from this
   working tree, and again with `PORT=10000`, `NSWR_TRUST_PROXY=1` and
   `NSWR_TRUST_CF_CONNECTING_IP=1` set the way the build environment sets them.
 - `npm run test:browser` - **364/364**, exit 0, run on 2 September 2026 from this
   working tree on Chrome 152.0.7977.65 with Edge 152.0.4191.53. It needs a real
   browser, so no offline gate can reproduce that figure.
 
-A commit this record does not name has not been measured here. Two commits on
-31 August each added a test and each bumped the total below without touching
-this line, which is why the line now carries a build and a clock.
+A later change has not been measured merely because this paragraph exists. The
+date and application snapshot scope the recorded browser evidence; documentation
+checks are rerun after documentation-only corrections.
 
 **What this record is, and what it is not.** It is a dated measurement, written
 by hand after a run. It is not cryptographic proof that the checkout you are
@@ -38,12 +38,12 @@ runs the whole suite against another Chromium build; whichever engine drives the
 run, one scenario also opens Microsoft Edge when it is installed and records
 what that engine really exposes.
 
-Latest measured result, on the commit this file ships in: **735/735 Node tests** and **364/364 Chrome checks**
+Latest measured result, on the commit this file ships in: **736/736 Node tests** and **364/364 Chrome checks**
 passed. The Node figure is reproducible offline from a clean checkout of that
 commit; the Chrome figure is a dated measurement rather than a computed one,
 because producing it needs a browser. Neither figure covers a later commit.
 
-Measured on 30 August 2026 in **Microsoft Edge 152.0.4191.53**, recorded rather
+Measured on 2 September 2026 in **Microsoft Edge 152.0.4191.53**, recorded rather
 than assumed: Edge exposes `document.modelContext`, registers all seven tools
 (six imperative plus the declarative form), reports **5 read · 2 write**, and
 completes a booking end to end. The suite does not require that — where a
@@ -142,7 +142,7 @@ everything else.
 | `test/uat/dom-contract.uat.test.mjs` | The contract between the HTML and the JS: every queried id exists, every ARIA reference resolves, every button has a name. Static, no browser |
 | `test/uat/presentation.uat.test.mjs` | The judge-facing hierarchy on both pages: the browser-agent prompt leads the visitor walkthrough; activity, requirements and the locked-until-review safe-failure control follow in order; shared-venue copying stays secondary; the operator's venue revision and no-half-bookings proof precede its controls; and the lift selector and empty-log contrast remain usable on a small screen |
 | `test/uat/resilience.uat.test.mjs` | Log and plan growth bounds, the session limiter and its trusted-header rules, and that a restart resurrects nothing |
-| `test/uat/regressions.uat.test.mjs` | One test per defect found by using the deployed app: the stale event date, the plan with no way back, the disabled control that lied, a phase label naming a control that phase hides, the refusal that erased itself, and three copy claims the page could not support. Run whole against `cf376a1`, 14 of its 17 cases fail there and 3 pass: the escape that does not depend on the incident card, which passes only because that build had no such control at all, and the two document-consistency checks, which `cf376a1` already satisfied. The label case is newer than `cf376a1` and was written against `2d7d08b` |
+| `test/uat/regressions.uat.test.mjs` | One test per defect found by using the deployed app: the stale event date, the plan with no way back, the disabled control that lied, a phase label naming a control that phase hides, the refusal that erased itself, and copy claims the page could not support. These tests lock the repaired behaviour; the clean release repository does not retain discarded pre-release snapshots as reproducible Git history |
 | `test/uat/map-and-operator.uat.test.mjs` | The map, and the operator page's human controls - not the operator page as a whole, whose tool surface and HTTP routes were already covered elsewhere. That the map can draw a failure at all, that it follows whichever lift the plan uses rather than one hardcoded id, that the garden route ends on the wheelchair space, that a human control exists for every lift the venue reports, and that every control whose action follows the facility selector rewrites its own label instead of naming one lift in static markup |
 | `test/uat/source-hygiene.uat.test.mjs` | Properties of the source itself: no invisible control character, every script parses, no suite registers nothing. Written after a lone backslash-b inside a template literal became a real backspace six times in one session, each time silently |
 | `test/uat/suite-integrity.uat.test.mjs` | Properties of the gate itself: no suite or harness binds a port written into the file, in any case of the identifier; nothing outside `test/helpers/test-server.mjs` spawns a server; that one launcher asks the OS for a port, requires its own instance token and watches its own child; and neither page decides armed state from a hardcoded lift. It asserts the architecture only - the readiness BEHAVIOUR is proved by running it, in `test-server.self.test.mjs`, because the earlier per-file text search passed on a guard referencing an undeclared binding and on four written-in ports it was reading directly |
@@ -185,42 +185,44 @@ scripted Chrome suite. No model is named anywhere in this section: the host
 exposed its browser, not whatever was driving it. The steps are:
 
 1. Open a fresh `?demo=<unique-id>` URL.
-2. Confirm the pill reports `5 read · 1 write` on the initial in-app-browser
-   surface. The declarative form tool may be absent on this host. That number is
-   derived from the declarations; the only figure ever measured there is
-   `4 read · 1 write`, on build `cf376a1`, before the later tools existed.
-3. Call `check_access_route` with `{}` and call `find_access_bundle` with missing
-   requirements. Both must return readable refusals without an HTTP error.
-4. Find and stage the East route, arm the live fault, then use the visible human
-   confirmation button.
-5. Require `STALE_RESOURCE_VERSION`, venue revision `2`, and
-   `partialReservations: 0`.
-6. Call `explain_access_refusal`, then `replan_access_bundle`.
-7. Accept the replacement plan in the visible UI.
-8. Require phase `CONFIRMED`, Garden Lift L4, one booking, revision `3`,
-   `partialReservations: 0`, and a final surface of `4 read · 0 write`.
-9. Require no console errors in the completed recovery flow. The deliberate
-   stale-plan HTTP conflict is a tested business refusal, not an unexpected error.
+2. Confirm the visitor pill reports `5 read · 1 write` on the initial
+   in-app-browser surface. The declarative form tool may be absent on this host.
+3. Call `get_event_access_state`; require phase `READY`, revision 1 and both lifts
+   operational. Find the East route with a complete requirement set.
+4. Call `stage_access_bundle` without `expectedVenueRevision`; require a readable
+   `MISSING_TOOL_ARGUMENTS` refusal and no stuck call. Call it again with the
+   plan id and revision 1; require `AWAITING_HUMAN_CONFIRMATION`.
+5. Use the visible confirmation button. Require a receipt, phase `CONFIRMED`,
+   booking `NSWR-00244`, committed revision 2, `partialReservations: 0`, focus on
+   the receipt heading and a final visitor surface of `4 read · 0 write`.
+6. On `/operator`, require `1 read · 2 write` on `32aafe7` and call
+   `get_facility_status`.
+7. Report East Lift L2 out of service through the operator tool. Require revision
+   3, the booking still active, no automatic cancellation or reroute, and a
+   persistent disruption warning on both pages while the receipt remains visible.
+8. Restore East Lift L2 through the operator tool. Require revision 4, both
+   warnings cleared and the booking still confirmed.
+9. Require no console errors or warnings on either page.
 
 **This case is not automated and no gate reproduces it.** Every other row in
 this document is asserted by `npm run verify` or `npm run test:browser`; this one
-is a manual run, driven by hand and recorded here. The recorded result is that
-all nine checks passed on 30 August 2026 against build `cf376a1`, in the ChatGPT
-desktop in-app browser.
+is a manual run, driven by hand and recorded here. All nine checks passed on
+2 September 2026 against application build `32aafe7` in the ChatGPT desktop
+in-app browser.
 
-What that run observed, in order: `4 read / 1 write` in `READY` on build `cf376a1`; readable
-refusals for both incomplete calls; the East plan created at venue revision 1;
-the confirmation after the lift failure rejected with `STALE_RESOURCE_VERSION`
-and `partialReservations: 0`; a replan through the Garden Lift; visible human
-acceptance required before anything committed; and phase `CONFIRMED` at revision
-3 with booking `NSWR-00251` and a final surface of `4 read / 0 write` on build `cf376a1`. No console
-errors.
+What that run observed is recorded in the numbered procedure above: `5 read / 1
+write` in `READY`; a readable incomplete-stage refusal; a human-confirmed East
+booking `NSWR-00244` at revision 2 with `partialReservations: 0`; an operator
+outage at revision 3 with persistent warnings and no automatic booking mutation;
+and a restore at revision 4 with the booking still confirmed. The final visitor
+surface was `4 read / 0 write`; the operator surface was `1 read / 2 write` on `32aafe7`.
+No
+console errors or warnings were present.
 
-That measurement covers `cf376a1` and nothing later. Commits after it, up to and
-including `309cbed`, have no recorded run in this host, so nothing here says the deployed
-build was tested there. Chrome results are not a substitute: ChatGPT desktop is a
-different host with its own tool surface and its own per-call review. Re-run it
-against the deployed URL before quoting it as current.
+That manual measurement covers the application files at `32aafe7`. A later
+documentation-only commit does not imply a second browser run or broaden the
+evidence. Chrome results are not a substitute: ChatGPT desktop is a different
+host with its own tool surface and per-call review.
 
 ## Interpretation note
 

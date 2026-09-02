@@ -7,12 +7,9 @@
  * seconds and a receipt row that could never say anything else all passed.
  *
  * These were written after the fixes, which is not TDD and is worth saying
- * plainly rather than dressing up. What was done instead is the part that can be
- * checked: every test here was run against the code as it stood at cf376a1,
- * before any of the repairs, and every one of them failed there for the reason
- * its name gives. The commands and the failures are recorded in
- * the dated retest brief so somebody else can repeat that rather than take
- * it on trust.
+ * plainly rather than dressing up. The clean release repository does not retain
+ * the discarded pre-release snapshots as reproducible Git history. What can be
+ * checked here is the repaired behaviour each test now locks.
  *
  * They are deliberately static. A DOM-level assertion that reads the shipped
  * files catches a regression on any machine in milliseconds, without a browser,

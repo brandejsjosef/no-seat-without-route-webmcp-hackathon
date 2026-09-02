@@ -617,6 +617,26 @@ test('the Chrome walkthrough table is exactly the contract the browser suite ass
   }
 });
 
+test('the public-release history matches the clean repository snapshot', async () => {
+  const readme = await read('README.md');
+  const start = readme.indexOf('## Project history');
+  assert.ok(start > 0, 'the README should contain a Project history section');
+  const section = readme.slice(start, readme.indexOf('\n## ', start + 10));
+
+  assert.match(section, /release snapshot committed on 1 September 2026/);
+  assert.match(section, /`4e04f2b`: 59 tracked files/);
+  assert.match(section, /does not claim to prove\s+when those files were first written/);
+
+  const recordedShas = [...new Set(
+    [...readme.matchAll(/`([0-9a-f]{7,40})`/g)].map((match) => match[1]),
+  )].sort();
+  assert.deepEqual(
+    recordedShas,
+    ['32aafe7', '4e04f2b'],
+    'README may name only the clean repository root and the measured application snapshot',
+  );
+});
+
 test('the manual ChatGPT case does not present itself as an automated gate', async () => {
   // Every other row in the matrix is backed by a suite. This one is a manual
   // run, and the difference stopped being visible once it was written in the
@@ -624,14 +644,14 @@ test('the manual ChatGPT case does not present itself as an automated gate', asy
   // that tidies it away would restore exactly the ambiguity it was added for.
   //
   // The date was the other half of the problem, and it was not covered at all.
-  // A run recorded as "29 August" sat here while the deployed build moved past
+  // An older run sat here while the deployed build moved past
   // it, and nothing went red. The record now has to name the build it was taken
   // against, in the same breath as the date, must not present any later build
   // as covered, and must not name a model the host never exposed. Both
   // documents carry this claim, so both are checked: guarding only the matrix
   // leaves the judge-facing README free to rot back to what it said before.
-  const RECORDED_DATE = '30 August 2026';
-  const RECORDED_BUILD = 'cf376a1';
+  const RECORDED_DATE = '2 September 2026';
+  const RECORDED_BUILD = '32aafe7';
   const MONTHS = 'January|February|March|April|May|June|July|August'
     + '|September|October|November|December';
   // A sha other than the measured one may be named only while the sentence is
@@ -722,13 +742,13 @@ test('the manual ChatGPT case does not present itself as an automated gate', asy
     'the ChatGPT desktop case must say that Chrome does not stand in for that host',
   );
   assert.ok(
-    new RegExp('covers `' + RECORDED_BUILD + '` and nothing later', 'i').test(section),
-    'the section must scope the measurement to `' + RECORDED_BUILD + '` and nothing later',
+    new RegExp('covers the application files at `' + RECORDED_BUILD + '`', 'i').test(section),
+    'the section must scope the measurement to the application files at `' + RECORDED_BUILD + '`',
   );
   qualify('QA_TEST_MATRIX.md', section);
 
   // The README repeats the claim to a judge who will never open the matrix.
-  const readmeStart = readme.indexOf('The visitor flow was also exercised');
+  const readmeStart = readme.indexOf('The deployed visitor and operator flows were exercised');
   assert.ok(readmeStart > 0, 'the README should record the ChatGPT desktop run');
   const paragraph = readme.slice(readmeStart, readme.indexOf('\n## ', readmeStart));
   assert.ok(
@@ -754,7 +774,7 @@ test('the manual ChatGPT case does not present itself as an automated gate', asy
  * this guard exists to prevent.
  */
 const CURRENT_COUNT = /(\d+) read\s*(?:·|,|\/)\s*(\d+) write/g;
-const DATED = /`[0-9a-f]{7,40}`|cf376a1/;
+const DATED = /`[0-9a-f]{7,40}`/;
 
 function resolveCountPhase(lines, index, phases) {
   // Count prose commonly wraps after its heading. Two preceding lines are
@@ -820,7 +840,7 @@ test('that guard recognises a wrong count and lets a dated one through', () => {
   assert.deepEqual(matches('reports the same **5 read · 2 write**, and completes'), ['5/2']);
   assert.deepEqual(matches('the host reports 4 read / 1 write'), ['4/1']);
   assert.deepEqual(matches('nothing numeric here at all'), []);
-  assert.equal(DATED.test('the only figure measured there is `4 read · 1 write`, on build `cf376a1`'), true);
+  assert.equal(DATED.test('the measured build `32aafe7` reported 5 read · 1 write'), true);
   assert.equal(DATED.test('Chrome 151 with declarative WebMCP support shows **4 read, 2 write**'), false);
 });
 

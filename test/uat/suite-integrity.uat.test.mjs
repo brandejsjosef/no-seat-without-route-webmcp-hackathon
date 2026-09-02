@@ -233,7 +233,7 @@ describe('a demo control names the facility it will actually act on', () => {
   test('no operator sentence resolves its facility from a literal', async () => {
     // Measured, not reasoned. Freezing one call - facilityLabel(snapshot,
     // facilityId) to facilityLabel(snapshot, 'east-lift') - re-creates the exact
-    // defect fixed in 309cbed: all three labels read "East Lift L2" for ever
+    // previously observed defect: all three labels read "East Lift L2" for ever
     // while all three endpoints still follow the selector, so pressing "Take
     // East Lift L2 offline now" takes Garden offline.
     //

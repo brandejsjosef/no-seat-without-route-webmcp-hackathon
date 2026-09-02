@@ -157,8 +157,8 @@ offered at all, which is why a confirmed booking exposes no way to change it:
 
 | Page state and host | Read | Write | Tools |
 |---|---|---|---|
-| `READY` — ChatGPT desktop IAB | 5 | 1 | *derived, not measured on that host* — `find_access_bundle`, `explain_access_refusal`; imperative tools only |
-| `READY` — Chrome 151 with the full declarative `SubmitEvent` contract | 5 | 2 | the same, and the form as `set_access_requirements` |
+| `READY` — ChatGPT desktop IAB | 5 | 1 | measured on the deployed application at `32aafe7`; imperative tools only |
+| `READY` — Chrome 152 with the full declarative `SubmitEvent` contract | 5 | 2 | the same, and the form as `set_access_requirements` |
 | `PLAN_READY` | 4 | 2 | `stage_access_bundle`, `clear_access_plan` |
 | `AWAITING_HUMAN_CONFIRMATION` | 4 | 1 | `clear_access_plan` only — nothing can confirm |
 | `PLAN_STALE` | 5 | 1 | `explain_access_refusal`, `replan_access_bundle` |
@@ -172,16 +172,10 @@ the last row counts every tool the browser exposes, not only the imperative ones
 
 The status badge and individual tool chips are derived from the tools the browser
 actually exposes (`document.modelContext.getTools()` where available). They do not
-assume that the declarative form exists. That is why the same `READY` page reported
-4 read / 1 write in the ChatGPT desktop in-app browser and 4 read / 2 write in Chrome 151, both against build `cf376a1`.
-
-**UNKNOWN — Chrome, Edge, and desktop in-app-browser evidence are not ChatGPT
-Desktop evidence.** The ChatGPT desktop row in the table above is *derived* from
-the declarations for a host without the declarative form contract; it has not
-been measured on that host since `cf376a1`, which predates the tools added
-after it. The only figures ever measured there are the 4 / 1 above, on that
-older build. *Verified against a real browser* below says what has been
-measured, and on which engine.
+assume that the declarative form exists. On 2 September 2026 the deployed
+application at `32aafe7` reported **5 read / 1 write** in the ChatGPT desktop
+in-app browser and **5 read / 2 write** in Chrome 152. The host difference is the
+declarative form tool; it is not counted when that host does not expose it.
 
 The venue operations page (`/operator`) is a second surface with a different role:
 `get_facility_status`, `report_facility_outage`, `restore_facility`. A visitor
@@ -247,13 +241,12 @@ No account, no setup, nothing to install beyond a browser that speaks WebMCP.
 **With an agent** (ChatGPT desktop in-app browser, or Chrome 149+ with
 `chrome://flags/#enable-webmcp-testing` enabled):
 
-1. Open the live URL. Chrome 151 with declarative WebMCP support shows
+1. Open the live URL. Chrome 152 with declarative WebMCP support shows
    **5 read, 2 write**, because it also exposes the visible form. On a host
    without the declarative form contract - the ChatGPT desktop in-app browser is
-   the one this was checked on - the same page is **5 read, 1 write**. That
-   second figure is *derived* from the declarations, not measured: the only
-   measurement ever taken on that host was 4 / 1, on build `cf376a1`, which
-   predates the tools added after it. See *Verified against a real browser*.
+   the one this was checked on - the same page is **5 read, 1 write**. Both
+   figures were measured on the application at `32aafe7`; see *Verified against
+   a real browser* for the scope of each run.
 2. Ask: *"Find a step-free plan for me and one companion. My chair is 72 cm wide,
    keep the route under 80 metres, use a quieter entrance and arrange someone to
    meet me at the door."*
@@ -402,7 +395,7 @@ exactly one revision past the refusal.
 | Agent replans, visitor confirms | Garden Entrance route booked, revision 3, 0 partial reservations |
 | Tools once the booking exists | write tools: **0** |
 
-Also driven through **Microsoft Edge 152.0.4191.53** on 30 August 2026, in its
+Also driven through **Microsoft Edge 152.0.4191.53** on 2 September 2026, in its
 own throwaway profile over the same protocol. Edge exposes `document.modelContext`,
 registers the same seven tools, reports the same **5 read · 2 write**, and completes
 a booking end to end. The harness does not assume this: it records what the engine
@@ -418,26 +411,24 @@ using is gone before showing you the replacement. A confirmation that cannot rea
 the server is announced and releases the button rather than sitting on
 *Confirming the whole bundle…*. All of that is in the browser suite.
 
-The visitor flow was also exercised by hand in the ChatGPT desktop in-app browser
-**on 30 August 2026, against build `cf376a1`**. That run is manual: no automated
-gate reproduces it, and no model is named, because the host exposed its browser
-rather than whatever was driving it. Its `READY` surface exposed the four
-read-only imperative tools plus the write-capable `find_access_bundle`:
-**4 read / 1 write** on build `cf376a1`. It did not expose `set_access_requirements`, because that
-host did not provide the declarative `SubmitEvent` contract used by the form. The
-page reports this measured surface instead of presenting Chrome's 4 / 2 count as
-universal.
+The deployed visitor and operator flows were exercised by hand in the ChatGPT
+desktop in-app browser **on 2 September 2026, against application build
+`32aafe7`**. This is a manual measurement; no automated gate reproduces it. The
+visitor's `READY` surface exposed **5 read / 1 write**, while the operator exposed
+**1 read / 2 write** on `32aafe7`. The host did not expose the declarative
+`set_access_requirements` form tool.
 
-The whole recovery flow completed in that host: both incomplete calls were
-refused readably, the East plan was created at venue revision 1, the confirmation
-after the lift failure was rejected with `STALE_RESOURCE_VERSION` and
-`0 partial reservations`, the replan went through the Garden Lift, acceptance
-required a visible human press, and the run finished at phase `CONFIRMED`,
-revision 3, booking `NSWR-00251`, with a final surface of **4 read / 0 write** on build `cf376a1` and
-no console errors. That is a measurement of `cf376a1` and of nothing later:
-commits after it, up to and including `309cbed`, have no recorded run in this
-host, so nothing here claims the deployed build was tested there. `QA_TEST_MATRIX.md`
-carries the nine-step procedure.
+The run created an East route, returned a readable refusal for an incomplete
+stage call, staged the complete plan and required the visible confirmation
+button before committing booking `NSWR-00244` at revision 2 with
+`partialReservations: 0`. The confirmed visitor surface exposed **4 read / 0
+write**. Reporting East Lift L2 out of service through the operator tool advanced
+the venue to revision 3 and left the booking active while both pages displayed a
+persistent route-disruption warning. Restoring the lift advanced it to revision
+4, cleared both warnings and left the receipt confirmed. Neither page produced a
+console error or warning. This measurement covers the application files at
+`32aafe7`; later documentation-only commits do not expand its scope.
+`QA_TEST_MATRIX.md` carries the exact manual procedure.
 
 ## Limits, stated plainly
 
@@ -467,19 +458,16 @@ carries the nine-step procedure.
 
 ## Project history
 
-The author attests that this project was created during the submission period,
-which opened on 25 August 2026. That is an attestation, not a measurement: this
-repository cannot show when a file was first written. What Git records is the
-commit dates described below, and those dates begin inside that window.
+This repository begins with the release snapshot committed on 1 September 2026
+as `4e04f2b`: 59 tracked files containing the visitor and operator surfaces, the
+server, evaluation set, automated tests and release documentation. It was
+imported from a working directory, so this Git history does not claim to prove
+when those files were first written.
 
-The log is not a feature-by-feature history and does not pretend to be. The first
-commit, dated 29 August, is the whole working project in one piece — twenty files,
-both tool surfaces, the eval set — because it was written in a working directory
-before the repository was initialised. That, too, is the author's account rather
-than something the log shows. Every commit after it is repair: each is named for
-the defect it closes, and most of those defects were found by driving a real
-browser rather than by reading the code. `git log --oneline` is therefore a
-record of what testing found.
+Subsequent commits record audited corrections to that release snapshot. The
+current commit list, dates and messages are available directly from
+`git log --oneline`; this README deliberately does not copy a commit count that
+would become stale after the next correction.
 
 ## License
 
