@@ -93,6 +93,14 @@ let visitorTools = [];
 let refreshQueue = Promise.resolve();
 let pendingRefreshes = 0;
 
+// Domain refusals are successful HTTP exchanges carrying `ok:false`. This
+// prevents expected safety decisions from masquerading as broken requests in
+// Chrome DevTools; unexpected server failures still use HTTP 500.
+const BROWSER_API_HEADERS = Object.freeze({
+  'Content-Type': 'application/json',
+  'X-NSWR-Domain-Outcome': 'envelope-v1',
+});
+
 const auditLabels = {
   DEMO_RESET: 'Demo data reset',
   PLAN_CREATED: 'Complete plan found',
@@ -247,17 +255,17 @@ async function api(path, options = {}) {
   const response = await fetch(path, {
     ...rest,
     headers: {
-      'Content-Type': 'application/json',
+      ...BROWSER_API_HEADERS,
       ...(token ?? sessionToken ? { 'X-Demo-Session': token ?? sessionToken } : {}),
       ...options.headers,
     },
   });
   const payload = await response.json();
-  if (!response.ok) {
+  if (!response.ok || payload.ok === false) {
     const error = new Error(payload.error?.message ?? 'Request failed.');
     error.code = payload.error?.code ?? 'REQUEST_FAILED';
     error.details = payload.error ?? {};
-    error.status = response.status;
+    error.status = payload.error?.status ?? response.status;
     throw error;
   }
   return payload;
@@ -358,11 +366,11 @@ async function startVisitorSession() {
   const rememberedDemoId = readStoredDemoId();
   const response = await fetch('/api/session', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: BROWSER_API_HEADERS,
     body: JSON.stringify({ role: 'visitor', demoId: requestedDemoId }),
   });
   const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error?.message ?? 'Could not start the visitor session.');
+  if (!response.ok || payload.ok === false) throw new Error(payload.error?.message ?? 'Could not start the visitor session.');
   sessionToken = payload.session.token;
   rememberDemoId(payload.session.demoId);
   const lostAVenueThisBrowserHad = Boolean(requestedDemoId)
@@ -380,11 +388,11 @@ async function ensureOperatorSession() {
   if (operatorToken) return operatorToken;
   const response = await fetch('/api/session', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: BROWSER_API_HEADERS,
     body: JSON.stringify({ role: 'operator', demoId }),
   });
   const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error?.message ?? 'Could not open the operations role.');
+  if (!response.ok || payload.ok === false) throw new Error(payload.error?.message ?? 'Could not open the operations role.');
   operatorToken = payload.session.token;
   return operatorToken;
 }
@@ -995,6 +1003,11 @@ async function confirmPlan() {
     await refreshState().catch(() => {});
     if (currentState) render(currentState);
     if (error.code === 'STALE_RESOURCE_VERSION') {
+      setProtocolTrace(
+        'Human visitor',
+        'confirmation refused',
+        `0 resources booked · venue revision ${currentState?.resourceVersion ?? 'unknown'}`,
+      );
       // The incident region announces itself and takes focus; a toast on top of
       // that is a third simultaneous utterance for one event.
       elements.incident.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });

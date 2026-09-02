@@ -433,6 +433,7 @@ async function main() {
     const consoleErrors = [];
     const consoleWarnings = [];
     const failedResponses = [];
+    const responsesReceived = [];
     // Every request the page issues, not only the ones that came back 4xx. A
     // successful request is invisible to failedResponses, so "issued no HTTP
     // request" could never have been proven from it.
@@ -468,6 +469,13 @@ async function main() {
         });
       });
       attached.on('Network.responseReceived', (params) => {
+        const headers = params.response.headers ?? {};
+        responsesReceived.push({
+          scenario: currentScenario,
+          status: params.response.status,
+          domainStatus: Number(headers['x-nswr-domain-status'] ?? headers['X-NSWR-Domain-Status']) || null,
+          url: params.response.url,
+        });
         if (params.response.status >= 400) {
           failedResponses.push({ scenario: currentScenario, status: params.response.status, url: params.response.url });
         }
@@ -603,6 +611,194 @@ async function main() {
     check('both lifts are in service before anything is planned',
       firstLifts.length === 2 && firstLifts.every((f) => f.status === 'OPERATIONAL'),
       JSON.stringify(firstLifts));
+    const firstActivity = JSON.parse(await run(`return JSON.stringify({
+      actor: document.querySelector('#protocol-channel').textContent,
+      action: document.querySelector('#protocol-tool').textContent,
+      result: document.querySelector('#protocol-result').textContent,
+    });`));
+    check('an actual browser tool call is visible in the live activity trace',
+      firstActivity.actor === 'WebMCP browser agent'
+        && firstActivity.action === 'get_event_access_state'
+        && firstActivity.result.includes('venue revision 1'),
+      JSON.stringify(firstActivity));
+
+    scenario('the recorded judge walkthrough works end to end with native WebMCP and a clean DevTools console');
+    const judgeResponseMark = responsesReceived.length;
+    const judgeFailureMark = failedResponses.length;
+    const judgeErrorMark = consoleErrors.length;
+    const judgeWarningMark = consoleWarnings.length;
+    const judgeWalkthrough = JSON.parse(await run(`
+      const activity = () => ({
+        actor: document.querySelector('#protocol-channel').textContent.trim(),
+        action: document.querySelector('#protocol-tool').textContent.trim(),
+        result: document.querySelector('#protocol-result').textContent.trim(),
+      });
+      const waitFor = async (test, ms = 10000) => {
+        const deadline = Date.now() + ms;
+        while (Date.now() < deadline) {
+          if (await test()) return true;
+          await sleep(80);
+        }
+        return false;
+      };
+
+      const initialSurface = await surface();
+      const found = await call('find_access_bundle', ${JSON.stringify(FULL)});
+      await waitFor(() => document.querySelector('#plan-state').textContent.trim() === 'Proposed');
+      const findActivity = activity();
+
+      await waitFor(async () => (await names()).includes('stage_access_bundle'));
+      await call('stage_access_bundle', {
+        planId: found.plan.id,
+        expectedVenueRevision: found.plan.basedOnRevision,
+      });
+      await waitFor(() => document.querySelector('#plan-state').textContent.trim() === 'Ready for review');
+      const stageActivity = activity();
+      const staged = {
+        route: document.querySelector('#route-summary').textContent.replace(/\\s+/g, ' ').trim(),
+        decisionVisible: !document.querySelector('#decision-section').hidden,
+        audit: document.querySelector('#audit-list').textContent.replace(/\\s+/g, ' ').trim(),
+        venueRevision: rev(),
+      };
+
+      document.querySelector('#fault-button').click();
+      await waitFor(() => document.querySelector('#fault-button').getAttribute('aria-disabled') === 'true');
+      const beforeConfirm = {
+        planState: document.querySelector('#plan-state').textContent.trim(),
+        venueRevision: rev(),
+      };
+      document.querySelector('#confirm-button').click();
+      await waitFor(() => !document.querySelector('#incident').hidden);
+      await waitFor(() => activity().actor === 'Human visitor'
+        && activity().action === 'confirmation refused');
+      const detail = document.querySelector('#incident details');
+      if (!detail.open) detail.querySelector('summary').click();
+      const refusalActivity = activity();
+      const refusal = {
+        detailOpen: detail.open,
+        technical: document.querySelector('#incident-detail').textContent.trim(),
+        partial: document.querySelector('#partial-count').textContent.trim(),
+        receiptHidden: document.querySelector('#receipt-section').hidden,
+        venueRevision: rev(),
+      };
+
+      await waitFor(async () => {
+        const available = await names();
+        return available.includes('explain_access_refusal')
+          && available.includes('replan_access_bundle');
+      });
+      const why = await call('explain_access_refusal', {});
+      const explainActivity = activity();
+      const replanned = await call('replan_access_bundle', { stalePlanId: found.plan.id });
+      await waitFor(() => document.querySelector('#decision-heading').textContent.includes('route changed'));
+      const replanActivity = activity();
+      const replacement = {
+        route: document.querySelector('#route-summary').textContent.replace(/\\s+/g, ' ').trim(),
+        planState: document.querySelector('#plan-state').textContent.trim(),
+        venueRevision: rev(),
+      };
+
+      document.querySelector('#confirm-button').click();
+      await waitFor(() => !document.querySelector('#receipt-section').hidden);
+      await waitFor(() => activity().actor === 'Human confirmation'
+        && activity().action === 'commit booking');
+      const confirmationActivity = activity();
+      const receipt = {
+        reference: document.querySelector('#receipt-number').textContent.trim(),
+        details: document.querySelector('#receipt-details').textContent.replace(/\\s+/g, ' ').trim(),
+        atomic: document.querySelector('#atomic-proof-text').textContent.replace(/\\s+/g, ' ').trim(),
+      };
+      const finalSurface = await surface();
+      return JSON.stringify({
+        initialSurface, found, findActivity, stageActivity, staged,
+        beforeConfirm, refusalActivity, refusal, why, explainActivity,
+        replanned, replanActivity, replacement, confirmationActivity,
+        receipt, finalSurface,
+      });
+    `));
+    check('judge step 1 discovers the complete READY WebMCP surface',
+      judgeWalkthrough.initialSurface.phase === 'READY'
+        && judgeWalkthrough.initialSurface.badge === '5 read · 2 write'
+        && judgeWalkthrough.initialSurface.names.includes('find_access_bundle'),
+      JSON.stringify(judgeWalkthrough.initialSurface));
+    check('judge step 2 records find_access_bundle as genuine WebMCP activity',
+      judgeWalkthrough.findActivity.actor === 'WebMCP browser agent'
+        && judgeWalkthrough.findActivity.action === 'find_access_bundle'
+        && judgeWalkthrough.findActivity.result.includes('option found'),
+      JSON.stringify(judgeWalkthrough.findActivity));
+    check('judge step 3 records stage_access_bundle in both activity and the decision log',
+      judgeWalkthrough.stageActivity.actor === 'WebMCP browser agent'
+        && judgeWalkthrough.stageActivity.action === 'stage_access_bundle'
+        && judgeWalkthrough.staged.audit.includes('WebMCP · stage_access_bundle'),
+      JSON.stringify({ activity: judgeWalkthrough.stageActivity, audit: judgeWalkthrough.staged.audit }));
+    check('judge step 4 presents the complete East plan before human confirmation',
+      judgeWalkthrough.staged.route.includes('East Entrance')
+        && judgeWalkthrough.staged.route.includes('East Lift L2')
+        && judgeWalkthrough.staged.decisionVisible === true
+        && judgeWalkthrough.beforeConfirm.planState === 'Ready for review'
+        && judgeWalkthrough.beforeConfirm.venueRevision === 1,
+      JSON.stringify({ staged: judgeWalkthrough.staged, beforeConfirm: judgeWalkthrough.beforeConfirm }));
+    check('judge step 5 shows the real stale refusal with zero partial reservations',
+      judgeWalkthrough.refusal.detailOpen === true
+        && judgeWalkthrough.refusal.technical.includes('STALE_RESOURCE_VERSION')
+        && judgeWalkthrough.refusal.technical.includes('plan revision 1')
+        && judgeWalkthrough.refusal.technical.includes('venue revision 2')
+        && judgeWalkthrough.refusal.partial === '0'
+        && judgeWalkthrough.refusal.receiptHidden === true,
+      JSON.stringify(judgeWalkthrough.refusal));
+    check('judge step 6 labels the confirmation as human activity, never as a WebMCP call',
+      judgeWalkthrough.refusalActivity.actor === 'Human visitor'
+        && judgeWalkthrough.refusalActivity.action === 'confirmation refused'
+        && judgeWalkthrough.refusalActivity.result.includes('0 resources booked'),
+      JSON.stringify(judgeWalkthrough.refusalActivity));
+    check('judge step 7 explains the stale revision, failed lift rule and Garden alternative through WebMCP',
+      judgeWalkthrough.explainActivity.actor === 'WebMCP browser agent'
+        && judgeWalkthrough.explainActivity.action === 'explain_access_refusal'
+        && judgeWalkthrough.why.errorCode === 'STALE_RESOURCE_VERSION'
+        && judgeWalkthrough.why.brokenRules?.some((rule) => rule.rule === 'LIFT_OPERATIONAL')
+        && judgeWalkthrough.why.validOptionsNow?.some((option) => option.routeId === 'garden-lift-route')
+        && judgeWalkthrough.why.partialReservations === 0,
+      JSON.stringify({ activity: judgeWalkthrough.explainActivity, result: judgeWalkthrough.why }));
+    check('judge step 8 records replan_access_bundle and prepares the complete Garden route',
+      judgeWalkthrough.replanActivity.actor === 'WebMCP browser agent'
+         && judgeWalkthrough.replanActivity.action === 'replan_access_bundle'
+         && judgeWalkthrough.replacement.route.includes('Garden Entrance')
+         && judgeWalkthrough.replacement.route.includes('Garden Lift L4')
+         && judgeWalkthrough.replacement.planState === 'Ready for review'
+         && judgeWalkthrough.replacement.venueRevision === 2,
+      JSON.stringify({ activity: judgeWalkthrough.replanActivity, replacement: judgeWalkthrough.replacement }));
+    check('judge step 9 keeps final acceptance human and produces one atomic receipt',
+      judgeWalkthrough.confirmationActivity.actor === 'Human confirmation'
+        && judgeWalkthrough.confirmationActivity.action === 'commit booking'
+         && /^NSWR-\d{5}$/.test(judgeWalkthrough.receipt.reference)
+         && judgeWalkthrough.receipt.details.includes('W12')
+         && judgeWalkthrough.receipt.details.includes('W13')
+         && judgeWalkthrough.receipt.details.includes('Partial reservations0')
+         && judgeWalkthrough.receipt.atomic.includes('reserved 0→3'),
+      JSON.stringify({ activity: judgeWalkthrough.confirmationActivity, receipt: judgeWalkthrough.receipt }));
+    check('judge step 10 ends with four read tools and zero write tools',
+      judgeWalkthrough.finalSurface.phase === 'CONFIRMED'
+        && judgeWalkthrough.finalSurface.badge === '4 read · 0 write'
+        && judgeWalkthrough.finalSurface.names.length === 4,
+      JSON.stringify(judgeWalkthrough.finalSurface));
+    const judgeResponses = responsesReceived.slice(judgeResponseMark);
+    const judgeCommits = judgeResponses.filter(({ url }) => /\/api\/plans\/[^/]+\/commit$/.test(new URL(url).pathname));
+    check('judge F12 records a clean typed refusal followed by a clean successful commit',
+      judgeCommits.length === 2
+        && judgeCommits[0].status === 200
+        && judgeCommits[0].domainStatus === 409
+        && judgeCommits[1].status === 200
+        && judgeCommits[1].domainStatus === null,
+      JSON.stringify(judgeCommits));
+    check('judge F12 has no failed request, console error or console warning',
+      failedResponses.length === judgeFailureMark
+        && consoleErrors.length === judgeErrorMark
+        && consoleWarnings.length === judgeWarningMark,
+      JSON.stringify({
+        failed: failedResponses.slice(judgeFailureMark),
+        errors: consoleErrors.slice(judgeErrorMark),
+        warnings: consoleWarnings.slice(judgeWarningMark),
+      }));
 
     scenario('a read-only tool changes nothing');
     await freshVenue();
@@ -761,6 +957,8 @@ async function main() {
 
     scenario('a lift failing between review and commit books nothing');
     await freshVenue();
+    const responsesBeforeStaleCommit = responsesReceived.length;
+    const consoleBeforeStaleCommit = consoleErrors.length;
     const race = await run(`
       const found = await call('find_access_bundle', ${JSON.stringify(FULL)});
       await settle();
@@ -772,9 +970,14 @@ async function main() {
       document.querySelector('#confirm-button').click();
       await sleep(2200);
       const afterConfirm = { rev: rev(), incident: !document.querySelector('#incident').hidden, partial: document.querySelector('#partial-count').textContent };
+      const refusedActivity = {
+        actor: document.querySelector('#protocol-channel').textContent,
+        action: document.querySelector('#protocol-tool').textContent,
+        result: document.querySelector('#protocol-result').textContent,
+      };
       const why = await call('explain_access_refusal', {});
       const staleSurface = await surface();
-      return JSON.stringify({ beforeConfirm, afterConfirm, why, staleSurface });`);
+      return JSON.stringify({ beforeConfirm, afterConfirm, refusedActivity, why, staleSurface });`);
     const r = JSON.parse(race);
     check('arming the fault leaves the plan looking ready', r.beforeConfirm.state === 'Ready for review', JSON.stringify(r.beforeConfirm));
     check('the venue revision moves during the commit', r.afterConfirm.rev > r.beforeConfirm.rev, `${r.beforeConfirm.rev} -> ${r.afterConfirm.rev}`);
@@ -789,6 +992,21 @@ async function main() {
     check('the agent is told which route still works', (r.why.validOptionsNow ?? []).some((o) => o.routeId === 'garden-lift-route'), JSON.stringify(r.why.validOptionsNow));
     check('the agent is told to replan', r.why.nextAction === 'REPLAN', String(r.why.nextAction));
     verifySurface(r.staleSurface, 'PLAN_STALE', 'a plan overtaken by the venue');
+    const staleCommitResponses = responsesReceived.slice(responsesBeforeStaleCommit)
+      .filter(({ url }) => /\/api\/plans\/[^/]+\/commit$/.test(new URL(url).pathname));
+    check('the expected stale confirmation is a clean HTTP exchange in DevTools',
+      staleCommitResponses.length === 1
+        && staleCommitResponses[0].status === 200
+        && staleCommitResponses[0].domainStatus === 409,
+      JSON.stringify(staleCommitResponses));
+    check('the safe-failure walkthrough adds no red console entry',
+      consoleErrors.length === consoleBeforeStaleCommit,
+      JSON.stringify(consoleErrors.slice(consoleBeforeStaleCommit)));
+    check('the page labels confirmation as a human refusal rather than a WebMCP tool call',
+      r.refusedActivity.actor === 'Human visitor'
+        && r.refusedActivity.action === 'confirmation refused'
+        && r.refusedActivity.result.includes('0 resources booked'),
+      JSON.stringify(r.refusedActivity));
 
     scenario('the agent replans and the visitor confirms the replacement');
     const recover = await run(`
@@ -2498,7 +2716,7 @@ async function main() {
       [judgeMobile.copy, judgeMobile.summary, judgeMobile.share]
         .every(({ width, height }) => width >= 44 && height >= 44),
       JSON.stringify({ copy: judgeMobile.copy, summary: judgeMobile.summary, share: judgeMobile.share }));
-    check('the mobile activity trace reads vertically as Agent, Tool, Page',
+    check('the mobile activity trace reads vertically as Actor, Action, Result',
       judgeMobile.protocolFields.length === 3
         && judgeMobile.protocolFields.every((field, index, fields) => index === 0 || field.top > fields[index - 1].top)
         && judgeMobile.protocolFields.every((field) => Math.abs(field.left - judgeMobile.protocolFields[0].left) < 2),
@@ -2732,7 +2950,10 @@ async function main() {
         planId: found.plan.id,
         expectedVenueRevision: found.plan.basedOnRevision,
       });
-      await settle();
+      for (let attempt = 0; attempt < 80; attempt += 1) {
+        if (document.querySelector('#plan-state').textContent.trim() === 'Ready for review') break;
+        await sleep(100);
+      }
 
       const originalFetch = window.fetch.bind(window);
       let stateRequests = 0;
@@ -2747,7 +2968,6 @@ async function main() {
         if (url.pathname !== '/api/state' || method !== 'GET') return originalFetch(input, init);
 
         stateRequests += 1;
-        if (stateRequests >= 3) return new Promise(() => {});
         const response = await originalFetch(input, init);
         if (stateRequests === 1) {
           firstCaptured();
@@ -4102,7 +4322,8 @@ async function main() {
       server = launchServer();
       await waitForServer();
       const recovered = await waitForPage(client,
-        `document.querySelector('#operator-venue-notice').hidden === false`,
+        `document.querySelector('#operator-venue-notice').hidden === false
+          && document.querySelector('#operator-live-text').textContent.startsWith('Venue data live')`,
         25_000);
       const opAfter = await run(`
         return JSON.stringify({
@@ -4136,15 +4357,7 @@ async function main() {
 
     scenario('the page logged no errors while all of that happened');
     const expectedFailures = [
-      { scenario: 'a lift failing between review and commit books nothing', status: 409, path: /\/api\/plans\/[^/]+\/commit$/, label: 'the primary stale human commit' },
-      { scenario: 'impossible requirements end in an explained dead end, not a booking', status: 409, path: /\/api\/plans\/[^/]+\/commit$/, label: 'the dead-end stale human commit' },
-      { scenario: 'a visitor can complete the failure and recovery path with only the keyboard', status: 409, path: /\/api\/plans\/[^/]+\/commit$/, label: 'the keyboard stale human commit' },
-      { scenario: 'impossible requirements end in an explained dead end, not a booking', status: 422, path: /\/api\/plans\/[^/]+\/replan$/, label: 'the deliberate no-alternative replan' },
       { scenario: 'a visitor session cannot act as the venue', status: 403, path: /\/api\/operator\/facilities\/east-lift\/outage$/, label: 'the deliberate cross-role request' },
-      { scenario: 'a 375 px visitor can still see the venue stop being live', status: 409, path: /\/api\/plans\/[^/]+\/commit$/, label: 'the narrow-viewport stale human commit' },
-      { scenario: 'a browser without WebMCP gets the complete manual fallback', status: 409, path: /\/api\/plans\/[^/]+\/commit$/, label: 'the manual-mode stale human commit' },
-      { scenario: 'confirming a plan another session cleared still leaves focus somewhere', status: 404, path: /\/api\/plans\/[^/]+\/prepare-confirmation$/, label: 'the confirmation of a plan that is gone' },
-      { scenario: 'a READY venue-only refusal is visible and clears after the venue recovers', status: 422, path: /\/api\/plans$/, label: 'the deliberate READY venue-only refusal' },
     ];
     const unclaimedFailures = [...failedResponses];
     const missingExpectedFailures = [];
@@ -4164,22 +4377,26 @@ async function main() {
     // fixed number of them; what matters is that they happened - a page that
     // went quiet, or one that silently re-authenticated itself onto a different
     // venue without saying so, would both show up here as their absence.
-    const restartSessionLosses = unclaimedFailures.filter(({ scenario: where, status, url }) => (
-      where === RESTART_SCENARIO && status === 401 && new URL(url).pathname === '/api/state'
+    const restartSessionLosses = responsesReceived.filter(({ scenario: where, status, domainStatus, url }) => (
+      where === RESTART_SCENARIO
+        && status === 200
+        && domainStatus === 401
+        && new URL(url).pathname === '/api/state'
     ));
-    for (const loss of restartSessionLosses) unclaimedFailures.splice(unclaimedFailures.indexOf(loss), 1);
-    check('the page kept asking the restarted server and was openly refused',
+    check('the page kept asking the restarted server and received a typed session refusal',
       restartSessionLosses.length > 0,
       'the page stopped polling, or quietly obtained a new session, after the server restarted');
 
     // The operations page does the same, and then recovers by itself, so the
     // refusals stop rather than continuing forever. Their presence proves it
     // kept asking; the scenario's own checks prove it came back.
-    const operatorSessionLosses = unclaimedFailures.filter(({ scenario: where, status, url }) => (
-      where === OPERATOR_RESTART_SCENARIO && status === 401 && new URL(url).pathname === '/api/state'
+    const operatorSessionLosses = responsesReceived.filter(({ scenario: where, status, domainStatus, url }) => (
+      where === OPERATOR_RESTART_SCENARIO
+        && status === 200
+        && domainStatus === 401
+        && new URL(url).pathname === '/api/state'
     ));
-    for (const loss of operatorSessionLosses) unclaimedFailures.splice(unclaimedFailures.indexOf(loss), 1);
-    check('the operations page kept asking the restarted server and was openly refused',
+    check('the operations page kept asking the restarted server and received a typed session refusal',
       operatorSessionLosses.length > 0,
       'the operations page stopped polling after the server restarted');
 

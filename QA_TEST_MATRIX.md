@@ -161,15 +161,45 @@ everything else.
 | `test/uat/idempotency-and-receipts.uat.test.mjs` | A request id binds on the first execution, refusal included, and a receipt number is unique in a running venue. The id used to bind only on success, so replaying an identical refused command re-ran it and wrote another decision-log entry every time, and a failed attempt could later become a DIFFERENT successful command under the same id. Receipts were derived from the audit sequence, which reset() rewinds, so three booking cycles produced NSWR-00244, NSWR-00245, NSWR-00245 - two bookings in one process sharing a number |
 | `test/uat/tester-round-three.uat.test.mjs` | The third adversarial round, and the one that found a repair which had never taken effect. A refusal was supposed to belong to the visitor who made it: the domain took a session key, the server passed `session.token`, and the test called the domain directly with a key - while `createSession` stored the session without its own token, so every HTTP caller arrived as `undefined` and landed in the shared bucket the repair existed to remove. Every test here goes over HTTP for that reason, including the ones whose logic lives in the domain. Also covers: a committed booking reported as three partial reservations, because the READY branch labelled the raw RESERVED count with the name the README pins at zero; `check_access_route` answering feasible without the five limits the venue filled in, which its sibling tool had already been fixed to disclose; and `restore_facility` describing two of its three cases |
 | `test/uat/final-release-regressions.uat.test.mjs` | Defects reproduced after the frozen release had passed every shipped gate: a successful replacement retires plan-scoped exclusions for every visitor; the refusal bound rejects session overflow instead of erasing an active visitor's explanation; the two-hour session TTL is enforced before a request can refresh it and expired refusal records are released; and an explanation preserves whether a direct search or a replacement search was actually rejected, including after the failed plan is cleared. The cross-session, capacity, TTL and action-provenance paths cross the real HTTP boundary; refusal cleanup is pinned directly at the store boundary where that private record lives |
+| `test/uat/browser-outcome-envelope.uat.test.mjs` | The visible safe-failure walkthrough must not look like a broken request in Chrome DevTools. A first-party page opts into a typed `ok:false` outcome envelope, so the expected stale confirmation remains `STALE_RESOURCE_VERSION`, preserves its original status 409 and reports zero partial reservations while the HTTP exchange itself is 200. A direct API caller without that header still receives HTTP 409, so the browser presentation fix does not erase the server's raw error contract |
 | `test/uat/attribution.uat.test.mjs` | Who the decision log says did a thing, and what that claim is worth. The two operator writes ignored the interaction context, so taking a lift out of service or restoring it was always filed as the venue operator whether it came from the operations page or from report_facility_outage - the one artefact this product asks to be believed was silent about half of what it records. The claim is deliberately modest: X-WebMCP-Tool is a DECLARED invocation path, not an authenticated identity, because an authorised client can send any header. A guard forbids any shipped document from calling it trusted, authenticated or proof of who acted |
 | `test/helpers/test-server.self.test.mjs` | The harness proves it tested its own server; this proves the harness. Real impostor servers, real dead children, real cross-matching: a 200 with the wrong token is refused, an owned child that has already exited is refused even when a stranger echoes its token, a live child on a port serving someone else token is refused, a stopped instance stops answering on its old origin, two launches get different ports and tokens and neither validates against the other origin, and the Render-style variables are proved removed by reading back what a child would actually get |
 
 ## Expected non-2xx responses
 
-The browser harness uses a scenario-tagged allow-list, not a global exception.
-Only deliberately exercised refusal paths may produce non-2xx responses, such as
-the stale-plan conflict, cross-site write rejection and malformed raw API request.
-Any other console or network error fails the run.
+The first-party visitor and operator pages request typed domain outcomes in a
+200 response envelope, so an expected safety refusal never becomes a red Chrome
+network error. Direct adversarial requests in the harness deliberately omit that
+header and use a scenario-tagged allow-list for their conventional non-2xx
+responses, such as a cross-role write rejection. Any other console or network
+error fails the run.
+
+## Release lesson: test the story the judge sees
+
+The browser gate contains one named scenario that follows the recorded demo in
+order: native tool discovery, `find_access_bundle`, `stage_access_bundle`, a
+human confirmation overtaken by the armed East Lift fault, the visible
+`STALE_RESOURCE_VERSION` refusal with zero partial reservations,
+`explain_access_refusal`, `replan_access_bundle`, and the final human commit of
+the Garden route. It also asserts that the first commit is a clean HTTP 200
+exchange carrying domain status 409, that the second commit succeeds, and that
+the whole scenario adds no failed request, console error or warning. Because
+`npm run verify:all` includes the browser suite, this exact walkthrough is a
+pre-deploy release gate rather than an informal manual memory.
+
+Lessons fixed into that gate:
+
+- Green domain tests do not prove a clean F12 console or Network panel. Expected
+  business refusals need a typed first-party response envelope; raw API callers
+  still keep conventional 4xx semantics.
+- Tool activity is evidence of WebMCP only when the native browser tool actually
+  ran. Clicking **Confirm** is deliberately recorded as human activity because
+  confirmation is not and must not become a WebMCP tool.
+- The activity strip shows the latest action, so the scenario captures each tool
+  entry immediately before a later action legitimately replaces it.
+- A browser harness must never suppress a response with a promise that cannot
+  settle. Doing so poisons the page's shared refresh queue and makes unrelated
+  later scenarios fail for the wrong reason.
 
 The restart scenario is the one place where a request can fail because there is
 no server to answer it. Connection errors are tolerated **only** inside that

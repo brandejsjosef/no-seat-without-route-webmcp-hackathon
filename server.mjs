@@ -55,17 +55,34 @@ function securityHeaders(contentType) {
   };
 }
 
-function sendJson(response, status, payload) {
-  response.writeHead(status, securityHeaders('application/json; charset=utf-8'));
+function sendJson(response, status, payload, headers = {}) {
+  response.writeHead(status, {
+    ...securityHeaders('application/json; charset=utf-8'),
+    ...headers,
+  });
   response.end(JSON.stringify(payload));
 }
 
-function sendError(response, error) {
+function sendError(request, response, error) {
   if (error instanceof DomainError) {
-    sendJson(response, error.status, {
+    // A fetch() that receives a 4xx is printed as a red network error in
+    // Chrome DevTools even when the page handles the refusal correctly.  The
+    // first-party pages opt into a transport envelope for expected domain
+    // outcomes: the HTTP exchange succeeds, while `ok:false`, the stable code
+    // and the original status preserve the refusal contract.  Direct API
+    // clients do not send this header and retain conventional HTTP statuses.
+    // Unexpected errors never use this envelope, so a real server defect still
+    // remains red and impossible to mistake for a business rule.
+    const envelope = request.headers['x-nswr-domain-outcome'] === 'envelope-v1';
+    sendJson(response, envelope ? 200 : error.status, {
       ok: false,
-      error: { code: error.code, message: error.message, ...error.details },
-    });
+      error: {
+        code: error.code,
+        message: error.message,
+        ...(envelope ? { status: error.status } : {}),
+        ...error.details,
+      },
+    }, envelope ? { 'X-NSWR-Domain-Status': String(error.status) } : {});
     return;
   }
   console.error(error);
@@ -565,7 +582,7 @@ const server = http.createServer(async (request, response) => {
     // Same status and same headers as GET, no body. That is what HEAD means.
     response.end(request.method === 'HEAD' ? undefined : contents);
   } catch (error) {
-    sendError(response, error);
+    sendError(request, response, error);
   }
 });
 

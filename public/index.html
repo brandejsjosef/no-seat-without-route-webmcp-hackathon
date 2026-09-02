@@ -78,12 +78,12 @@
         </div>
       </section>
 
-      <section class="protocol-strip" aria-label="Browser agent activity">
+      <section class="protocol-strip" aria-label="Live page activity">
         <div class="shell protocol-grid">
-          <span class="protocol-label">AGENT ACTIVITY</span>
-          <span class="protocol-field"><small>Agent</small><span id="protocol-channel">Waiting for a browser agent</span></span>
-          <span class="protocol-field"><small>Tool</small><code id="protocol-tool">no tool called</code></span>
-          <span class="protocol-field"><small>Page</small><strong id="protocol-result">UI unchanged</strong></span>
+          <span class="protocol-label">LIVE ACTIVITY</span>
+          <span class="protocol-field"><small>Actor</small><span id="protocol-channel">Waiting for a browser agent</span></span>
+          <span class="protocol-field"><small>Action</small><code id="protocol-tool">no tool called</code></span>
+          <span class="protocol-field"><small>Result</small><strong id="protocol-result">UI unchanged</strong></span>
         </div>
       </section>
 
@@ -310,7 +310,7 @@
         <div>
           <p class="eyebrow">HUMAN DECISION</p>
           <h2 id="decision-heading" tabindex="-1">Review the whole plan.</h2>
-          <p>The agent can prepare and replan. Only you can approve the final booking.</p>
+          <p>The agent can prepare and replan. Confirmation is a human-only action and is not exposed as a WebMCP tool.</p>
         </div>
         <div class="decision-actions">
           <button class="button button-primary" type="button" id="confirm-button">Confirm this accessible booking</button>

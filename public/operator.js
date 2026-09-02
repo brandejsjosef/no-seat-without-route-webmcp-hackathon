@@ -91,6 +91,11 @@ const elements = {
 
 let state = null;
 let actionFeedbackRevision = null;
+
+const BROWSER_API_HEADERS = Object.freeze({
+  'Content-Type': 'application/json',
+  'X-NSWR-Domain-Outcome': 'envelope-v1',
+});
 let sessionToken = '';
 let demoId = '';
 let operatorTools = [];
@@ -139,15 +144,17 @@ async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...BROWSER_API_HEADERS,
       ...(sessionToken ? { 'X-Demo-Session': sessionToken } : {}),
       ...options.headers,
     },
   });
   const payload = await response.json();
-  if (!response.ok) {
+  if (!response.ok || payload.ok === false) {
     const error = new Error(payload.error?.message ?? 'Request failed.');
     error.code = payload.error?.code;
+    error.status = payload.error?.status ?? response.status;
+    error.details = payload.error ?? {};
     throw error;
   }
   return payload;
@@ -198,11 +205,11 @@ async function startOperatorSession() {
   })();
   const response = await fetch('/api/session', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: BROWSER_API_HEADERS,
     body: JSON.stringify({ role: 'operator', demoId: requestedDemoId }),
   });
   const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error?.message ?? 'Could not start the operator session.');
+  if (!response.ok || payload.ok === false) throw new Error(payload.error?.message ?? 'Could not start the operator session.');
   sessionToken = payload.session.token;
   demoId = payload.session.demoId;
   // Joining someone else's link, or an identifier typed by hand, is not a loss:

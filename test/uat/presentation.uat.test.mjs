@@ -54,9 +54,11 @@ describe('the visitor page tells the demo in the order a judge performs it', () 
     assert.match(INDEX, /<span class="webmcp-label">WebMCP ·<\/span>/);
     assert.match(INDEX, /id="venue-version">Venue revision —<\/span>/);
     assert.doesNotMatch(INDEX + OPERATOR, /◇/);
-    assert.match(INDEX, /<small>Agent<\/small>/);
-    assert.match(INDEX, /<small>Tool<\/small>/);
-    assert.match(INDEX, /<small>Page<\/small>/);
+    assert.match(INDEX, /LIVE ACTIVITY/);
+    assert.match(INDEX, /<small>Actor<\/small>/);
+    assert.match(INDEX, /<small>Action<\/small>/);
+    assert.match(INDEX, /<small>Result<\/small>/);
+    assert.match(INDEX, /Confirmation is a human-only action and is not exposed as a WebMCP tool\./);
     assert.match(INDEX, /aria-label="N\/R No Seat Without a Route, home"/);
   });
 
