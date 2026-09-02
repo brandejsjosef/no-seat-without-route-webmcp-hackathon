@@ -1,13 +1,13 @@
 # Adversarial QA test matrix
 
-Last full run: 2 September 2026, against application snapshot `72845b7` and the
+Last full run: 2 September 2026, against application snapshot `a135303` and the
 documentation state this file ships in.
 
-- `npm run verify` - **738/738**, exit 0, run on 2 September 2026 from this
+- `npm run verify` - **740/740**, exit 0, run on 2 September 2026 from this
   working tree, and again with `PORT=10000`, `NSWR_TRUST_PROXY=1` and
   `NSWR_TRUST_CF_CONNECTING_IP=1` set the way the build environment sets them.
-- `npm run test:browser` - **373/373**, exit 0, run on 2 September 2026 from this
-  working tree on Chrome 152.0.7977.65 with Edge 152.0.4191.53. It needs a real
+- `npm run test:browser` - **389/389**, exit 0, run on 2 September 2026 from this
+  working tree on Chrome 152.0.7977.66 with Edge 152.0.4191.53. It needs a real
   browser, so no offline gate can reproduce that figure.
 
 A later change has not been measured merely because this paragraph exists. The
@@ -38,8 +38,8 @@ runs the whole suite against another Chromium build; whichever engine drives the
 run, one scenario also opens Microsoft Edge when it is installed and records
 what that engine really exposes.
 
-Latest measured application snapshot, `72845b7`: **738/738 Node tests** and
-**373/373 Chrome checks** passed. The Node figure is reproducible offline from a
+Latest measured application snapshot, `a135303`: **740/740 Node tests** and
+**389/389 Chrome checks** passed. The Node figure is reproducible offline from a
 clean checkout of that snapshot; the Chrome figure is a dated measurement rather
 than a computed one, because producing it needs a browser. Neither figure covers
 a later application change.
