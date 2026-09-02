@@ -25,12 +25,15 @@ assistance is missing, the seat may be unusable even though the wheelchair space
 itself exists.
 
 Federal ADA ticketing regulations require covered public entities and public
-accommodations that sell event tickets to offer accessible seating during the
-same hours and through the same distribution methods as other seating. Upon
-inquiry, entities that sell or distribute those tickets must describe available
-accessible seating in enough detail for an individual with a disability to assess
-whether a particular seating location meets their accessibility needs. Which rule
-applies depends on who runs the venue:
+accommodations that sell tickets for a single event or series of events to give
+individuals with disabilities an equal opportunity to purchase accessible
+seating, including during the same hours and through the same distribution
+methods used for other seating. Upon inquiry, entities that sell or distribute
+those tickets must identify and describe available accessible seating in enough
+detail for an individual with a disability to assess whether a particular seating
+location meets their accessibility needs. See the
+[DOJ ticket-sales guidance](https://www.ada.gov/resources/ticket-sales/). Which
+rule applies depends on who runs the venue:
 [28 CFR § 35.138](https://www.ecfr.gov/current/title-28/chapter-I/part-35/subpart-B/section-35.138)
 for public entities and
 [28 CFR § 36.302(f)](https://www.ecfr.gov/current/title-28/chapter-I/part-36/subpart-C/section-36.302)
