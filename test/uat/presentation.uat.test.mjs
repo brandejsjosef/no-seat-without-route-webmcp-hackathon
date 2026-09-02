@@ -131,6 +131,30 @@ describe('the operator page foregrounds state and uses operational language', ()
     assert.match(OPERATOR, /Both live states stay visible/);
     assert.match(STYLES, /\.facility-radio:focus-visible \+ \.facility-card\s*\{[^}]*outline:\s*3px solid white;/s);
     assert.match(STYLES, /\.facility-radio:checked \+ \.facility-card \.facility-selected/);
+    assert.match(OPERATOR, /class="facility-select-hint"[^>]*>Select to control</);
+    assert.match(STYLES, /\.facility-radio:checked \+ \.facility-card \.facility-select-hint\s*\{[^}]*display:\s*none;/s);
+    assert.match(OPERATOR_JS, /requestAnimationFrame\(\(\) => \{\s*radio\.nextElementSibling\?\.scrollIntoView\(\{ block: 'nearest', behavior: 'auto' \}\)/s);
+  });
+
+  test('selected state never paints an offline lift green', () => {
+    const selectedOperational = STYLES.indexOf('.facility-radio:checked + .facility-card {');
+    const selectedOffline = STYLES.indexOf('.facility-radio:checked + .facility-card.out {');
+    assert.ok(selectedOperational >= 0 && selectedOffline > selectedOperational,
+      'the more specific offline override must follow the generic selected style');
+    assert.match(STYLES, /\.facility-radio:checked \+ \.facility-card\.out\s*\{[^}]*background:\s*#4b1b20;[^}]*border:\s*2px solid #ff8a7f;/s);
+    assert.match(STYLES, /\.facility-radio:checked \+ \.facility-card\.out \.facility-selected\s*\{[^}]*border-color:\s*#ff8a7f;/s);
+    assert.match(STYLES, /\.facility-option:hover \.facility-card\.out\s*\{[^}]*border-color:\s*#ff8a7f;/s);
+  });
+
+  test('action results are persistent in-page content, never timed overlays', () => {
+    assert.match(INDEX, /id="action-feedback" role="status" hidden/);
+    assert.match(OPERATOR, /id="operator-action-feedback" role="status" hidden/);
+    assert.match(STYLES, /\.action-feedback\s*\{[^}]*width:\s*100%;/s);
+    assert.doesNotMatch(STYLES, /\.toast\s*\{|position:\s*fixed[^}]*action-feedback/s);
+    assert.doesNotMatch(INDEX + OPERATOR, /class="toast"|id="(?:operator-)?toast"/);
+    assert.doesNotMatch(APP + OPERATOR_JS, /showToast|toastTimer|setTimeout\([^)]*actionFeedback/s);
+    assert.ok(INDEX.indexOf('id="action-feedback"') > INDEX.indexOf('id="assurance-card"'));
+    assert.ok(OPERATOR.indexOf('id="operator-action-feedback"') > OPERATOR.indexOf('class="race-card"'));
   });
 
   test('a confirmed route disruption has persistent operator and visitor warnings', () => {

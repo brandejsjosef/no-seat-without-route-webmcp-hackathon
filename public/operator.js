@@ -86,11 +86,11 @@ const elements = {
   liveText: document.querySelector('#operator-live-text'),
   venueNotice: document.querySelector('#operator-venue-notice'),
   resetButton: document.querySelector('#operator-reset-button'),
-  toast: document.querySelector('#operator-toast'),
+  actionFeedback: document.querySelector('#operator-action-feedback'),
 };
 
 let state = null;
-let toastTimer = null;
+let actionFeedbackRevision = null;
 let sessionToken = '';
 let demoId = '';
 let operatorTools = [];
@@ -113,11 +113,6 @@ function announce(message) {
   region.textContent = message;
 }
 
-/** Re-states a standing notice that a later announcement would have replaced. */
-function restoreStandingNotice() {
-  if (standingNotice) announce(standingNotice);
-}
-
 function escapeHtml(value) {
   return String(value)
     .replaceAll('&', '&amp;')
@@ -127,15 +122,17 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;');
 }
 
-function showToast(message) {
-  window.clearTimeout(toastTimer);
-  elements.toast.textContent = message;
-  elements.toast.hidden = false;
+function showActionFeedback(message) {
+  elements.actionFeedback.textContent = message;
+  elements.actionFeedback.hidden = false;
+  actionFeedbackRevision = state?.resourceVersion ?? null;
   announce(message);
-  toastTimer = window.setTimeout(() => {
-    elements.toast.hidden = true;
-    restoreStandingNotice();
-  }, 3800);
+}
+
+function clearActionFeedback() {
+  actionFeedbackRevision = null;
+  elements.actionFeedback.hidden = true;
+  elements.actionFeedback.textContent = '';
 }
 
 async function api(path, options = {}) {
@@ -346,6 +343,7 @@ function renderLog(snapshot) {
 }
 
 function render(snapshot) {
+  if (actionFeedbackRevision !== null && actionFeedbackRevision !== snapshot.resourceVersion) clearActionFeedback();
   state = snapshot;
   // The venue operates two lifts and this page could only ever act on one of
   // them. Garden Lift L4 was listed in the facility table with no control at
@@ -477,9 +475,9 @@ elements.armButton.addEventListener('click', async () => {
   try {
     const payload = await api(operatorEndpoint(actedOn, 'arm'), { method: 'POST', body: '{}' });
     render(payload.state);
-    showToast(`${facilityLabel(payload.state, actedOn)} fault will land during the visitor’s next confirmation.`);
+    showActionFeedback(`${facilityLabel(payload.state, actedOn)} fault will land during the visitor’s next confirmation.`);
   } catch (error) {
-    showToast(error.message);
+    showActionFeedback(error.message);
     await refresh();
   }
 });
@@ -506,13 +504,13 @@ async function takeFacilityOffline(actedOn, { acknowledgedBookingReference = nul
     });
     pendingOutageConfirmationId = null;
     render(payload.state);
-    showToast(`${facilityLabel(payload.state, actedOn)} is now out of service. The venue revision changed.`);
+    showActionFeedback(`${facilityLabel(payload.state, actedOn)} is now out of service. The venue revision changed.`);
   } catch (error) {
     if (['OPERATOR_REVIEW_STALE', 'BOOKING_IMPACT_CONFIRMATION_REQUIRED'].includes(error.code)) {
       try {
         await refresh();
       } catch (refreshError) {
-        showToast(refreshError.message);
+        showActionFeedback(refreshError.message);
         return;
       }
 
@@ -527,12 +525,12 @@ async function takeFacilityOffline(actedOn, { acknowledgedBookingReference = nul
       } else {
         pendingOutageConfirmationId = null;
         render(state);
-        showToast('The venue changed. Review the selected lift before reporting an outage.');
+        showActionFeedback('The venue changed. Review the selected lift before reporting an outage.');
       }
       return;
     }
 
-    showToast(error.message);
+    showActionFeedback(error.message);
     await refresh();
   } finally {
     outageRequestInFlight = false;
@@ -550,19 +548,19 @@ elements.outageNowButton.addEventListener('click', async () => {
   try {
     await refresh();
   } catch (error) {
-    showToast(error.message);
+    showActionFeedback(error.message);
     if (state) render(state);
     return;
   }
   // Do not act on a lift the operator changed away from while the fresh read
   // was in flight. They must review the newly selected control explicitly.
   if (selectedFacility() !== actedOn) {
-    showToast('The selected lift changed. Review its controls before reporting an outage.');
+    showActionFeedback('The selected lift changed. Review its controls before reporting an outage.');
     render(state);
     return;
   }
   if (state?.resources?.[actedOn]?.status !== 'OPERATIONAL') {
-    showToast(`${facilityLabel(state, actedOn)} is already out of service.`);
+    showActionFeedback(`${facilityLabel(state, actedOn)} is already out of service.`);
     render(state);
     return;
   }
@@ -599,9 +597,9 @@ elements.restoreButton?.addEventListener('click', async () => {
   try {
     const payload = await api(operatorEndpoint(actedOn, 'restore'), { method: 'POST', body: '{}' });
     render(payload.state);
-    showToast(`${facilityLabel(payload.state, actedOn)} is back in service. The venue revision changed again.`);
+    showActionFeedback(`${facilityLabel(payload.state, actedOn)} is back in service. The venue revision changed again.`);
   } catch (error) {
-    showToast(error.message);
+    showActionFeedback(error.message);
     await refresh();
   }
 });
@@ -609,9 +607,15 @@ elements.restoreButton?.addEventListener('click', async () => {
 // Switching the directly visible lift card repaints the labels and disabled
 // states without replacing the radio DOM. The one-second poll therefore cannot
 // steal keyboard focus from the operator.
-elements.facilityPicker?.addEventListener('change', () => {
+elements.facilityPicker?.addEventListener('change', (event) => {
   pendingOutageConfirmationId = null;
   if (state) render(state);
+  const radio = event.target;
+  if (radio instanceof HTMLInputElement) {
+    window.requestAnimationFrame(() => {
+      radio.nextElementSibling?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+    });
+  }
 });
 
 elements.resetButton.addEventListener('click', async () => {
@@ -619,9 +623,9 @@ elements.resetButton.addEventListener('click', async () => {
     pendingOutageConfirmationId = null;
     const payload = await api('/api/demo/reset', { method: 'POST', body: '{}' });
     render(payload.state);
-    showToast('All synthetic venue data restored.');
+    showActionFeedback('All synthetic venue data restored.');
   } catch (error) {
-    showToast(error.message);
+    showActionFeedback(error.message);
   }
 });
 
@@ -633,7 +637,7 @@ async function initialize() {
     await syncOperatorTools();
     window.setInterval(pollState, 1_000);
   } catch (error) {
-    showToast(error.message);
+    showActionFeedback(error.message);
   }
 }
 

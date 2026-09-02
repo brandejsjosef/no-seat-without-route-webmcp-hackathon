@@ -1595,18 +1595,29 @@ h3 {
   color: white;
 }
 
-.toast {
-  position: fixed;
-  right: 20px;
-  bottom: 20px;
-  z-index: 50;
-  max-width: min(390px, calc(100% - 40px));
+.action-feedback {
+  width: 100%;
+  margin: 0 0 22px;
   padding: 14px 17px;
-  background: var(--ink);
+  background: #173b34;
   color: white;
+  border: 1px solid #4f8278;
+  border-left: 6px solid #84c9bf;
   border-radius: 8px;
-  box-shadow: var(--shadow);
   font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.action-feedback[hidden] {
+  display: none;
+}
+
+.operator-action-feedback {
+  margin: 18px 0 0;
+  background: #fffaf0;
+  color: #3f2b08;
+  border-color: #c9a65d;
+  border-left-color: #765000;
 }
 
 /* Venue operator */
@@ -1904,10 +1915,15 @@ h3 {
   border: 1px solid #344943;
   border-radius: 10px;
   transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+  cursor: pointer;
 }
 
 .facility-option:hover .facility-card {
   border-color: #67857e;
+}
+
+.facility-option:hover .facility-card.out {
+  border-color: #ff8a7f;
 }
 
 .facility-radio:checked + .facility-card {
@@ -1924,6 +1940,17 @@ h3 {
 .facility-card.out {
   background: #2c1c1d;
   border-color: #7b3d3a;
+}
+
+.facility-radio:checked + .facility-card.out {
+  background: #4b1b20;
+  border: 2px solid #ff8a7f;
+  box-shadow: 0 0 0 2px rgb(255 138 127 / 24%);
+}
+
+.facility-card.out .facility-symbol {
+  background: #5a2326;
+  color: #ffb7ae;
 }
 
 .facility-copy {
@@ -1980,6 +2007,7 @@ h3 {
 }
 
 .facility-selected,
+.facility-select-hint,
 .facility-fault {
   padding: 7px 10px;
   border: 1px solid #61837a;
@@ -1994,8 +2022,22 @@ h3 {
   display: none;
 }
 
+.facility-select-hint {
+  color: #b6c9c4;
+  border-color: #526c65;
+}
+
 .facility-radio:checked + .facility-card .facility-selected {
   display: inline-flex;
+}
+
+.facility-radio:checked + .facility-card .facility-select-hint {
+  display: none;
+}
+
+.facility-radio:checked + .facility-card.out .facility-selected {
+  color: #ffe7e3;
+  border-color: #ff8a7f;
 }
 
 .facility-fault {

@@ -3,10 +3,10 @@
 Last full run: 2 September 2026, against application snapshot `32aafe7` and the
 documentation state this file ships in.
 
-- `npm run verify` - **736/736**, exit 0, run on 2 September 2026 from this
+- `npm run verify` - **738/738**, exit 0, run on 2 September 2026 from this
   working tree, and again with `PORT=10000`, `NSWR_TRUST_PROXY=1` and
   `NSWR_TRUST_CF_CONNECTING_IP=1` set the way the build environment sets them.
-- `npm run test:browser` - **364/364**, exit 0, run on 2 September 2026 from this
+- `npm run test:browser` - **370/370**, exit 0, run on 2 September 2026 from this
   working tree on Chrome 152.0.7977.65 with Edge 152.0.4191.53. It needs a real
   browser, so no offline gate can reproduce that figure.
 
@@ -38,7 +38,7 @@ runs the whole suite against another Chromium build; whichever engine drives the
 run, one scenario also opens Microsoft Edge when it is installed and records
 what that engine really exposes.
 
-Latest measured result, on the commit this file ships in: **736/736 Node tests** and **364/364 Chrome checks**
+Latest measured result, on the commit this file ships in: **738/738 Node tests** and **370/370 Chrome checks**
 passed. The Node figure is reproducible offline from a clean checkout of that
 commit; the Chrome figure is a dated measurement rather than a computed one,
 because producing it needs a browser. Neither figure covers a later commit.

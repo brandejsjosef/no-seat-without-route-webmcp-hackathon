@@ -349,15 +349,15 @@ describe('the operator can act on every lift the venue has', () => {
       read('public/operator.js'),
     ]);
 
-    // Every toast on this page reports an action on the SELECTED lift, so no
-    // toast may carry a lift name that was decided when the line was written.
-    const toasts = operatorJs.split('\n').filter((line) => line.includes('showToast('));
-    assert.ok(toasts.length >= 4, `expected the page to raise several toasts, saw ${toasts.length}`);
-    const lyingToasts = toasts.filter((line) => /East Lift|Garden Lift/.test(line));
+    // Every persistent result on this page reports an action on the SELECTED
+    // lift, so no result may carry a lift name decided when the line was written.
+    const feedbackCalls = operatorJs.split('\n').filter((line) => line.includes('showActionFeedback('));
+    assert.ok(feedbackCalls.length >= 4, `expected the page to raise several results, saw ${feedbackCalls.length}`);
+    const lyingFeedback = feedbackCalls.filter((line) => /East Lift|Garden Lift/.test(line));
     assert.deepEqual(
-      lyingToasts,
+      lyingFeedback,
       [],
-      `these toasts name a lift literally instead of the one acted on:\n${lyingToasts.join('\n')}`,
+      `these results name a lift literally instead of the one acted on:\n${lyingFeedback.join('\n')}`,
     );
 
     // The audit title used to be one static string per action, so every arm read

@@ -1079,7 +1079,9 @@ async function main() {
       const pending = call('set_access_requirements', { wheelchairWidthCm: 68, maxDistanceM: 85, stepFree: true, companion: true, assistance: true, lowStimulus: true });
       await sleep(1400);
       const filled = widthField.value;
-      const agentNotice = document.querySelector('#toast').textContent;
+      const feedback = document.querySelector('#action-feedback');
+      const agentNotice = feedback.textContent;
+      const agentNoticeVisible = !feedback.hidden;
       const settledEarly = await Promise.race([pending.then(() => true), sleep(600).then(() => false)]);
 
       document.querySelector('#build-plan-button').click();
@@ -1091,6 +1093,7 @@ async function main() {
         before,
         filled,
         agentNotice,
+        agentNoticeVisible,
         settledEarly,
         result,
         offeredAfterPlanning: (await names()).includes('set_access_requirements'),
@@ -1099,7 +1102,8 @@ async function main() {
     check('the form is offered as a tool while it is editable', dec.offeredAtStart === true, declarative);
     check('an agent can fill the visible form', dec.before !== dec.filled && dec.filled === '68', `${dec.before} -> ${dec.filled}`);
     check('a valid declarative fill tells the visitor what to do',
-      dec.agentNotice.includes('Check the values') && dec.agentNotice.includes('submit it yourself'),
+      dec.agentNoticeVisible === true
+        && dec.agentNotice.includes('Check the values') && dec.agentNotice.includes('submit it yourself'),
       dec.agentNotice);
     check('the call does not settle until a person submits', dec.settledEarly === false, 'it resolved without anyone pressing the button');
     check('submitting hands the result back to the agent', dec.result?.submittedByVisitor === true && Boolean(dec.result?.planId), JSON.stringify(dec.result));
@@ -1315,8 +1319,8 @@ async function main() {
 
       const armMark = requestsSent.length;
       const armedStep = JSON.parse(await run(`
-        const toast = document.querySelector('#operator-toast');
-        const priorToast = toast.textContent;
+        const feedback = document.querySelector('#operator-action-feedback');
+        const priorFeedback = feedback.textContent;
         const waitFor = async (test, ms = 10000) => {
           const deadline = Date.now() + ms;
           while (Date.now() < deadline) { if (test()) return true; await sleep(60); }
@@ -1326,8 +1330,8 @@ async function main() {
         action.focus();
         const heldFocus = document.activeElement === action;
         action.click();
-        const spoke = await waitFor(() => !toast.hidden && toast.textContent !== priorToast);
-        const message = toast.textContent;
+        const spoke = await waitFor(() => !feedback.hidden && feedback.textContent !== priorFeedback);
+        const message = feedback.textContent;
         const top = document.querySelector('#operator-log .audit-item');
         const title = top.querySelector('strong').textContent;
         const detail = top.querySelector('small').textContent;
@@ -1335,7 +1339,7 @@ async function main() {
           spoke,
           heldFocus,
           activeAfter: document.activeElement?.id ?? document.activeElement?.tagName ?? '',
-          toast: message,
+          feedback: message,
           title,
           detail,
           armedHidden: document.querySelector('#armed-state').hidden,
@@ -1347,8 +1351,8 @@ async function main() {
           && armRequests.join(' | ') === `POST /api/operator/facilities/${lift.id}/arm`
           && armedStep.armedHidden === false,
         JSON.stringify({ armRequests, armedStep }));
-      check(`${lift.label}: the arm toast and the newest log entry name it and never ${lift.otherLabel}`,
-        namesIt(armedStep.toast) && !namesTheOther(armedStep.toast)
+      check(`${lift.label}: the persistent arm result and newest log entry name it and never ${lift.otherLabel}`,
+        namesIt(armedStep.feedback) && !namesTheOther(armedStep.feedback)
           && namesIt(armedStep.detail) && !namesTheOther(armedStep.detail)
           && !namesTheOther(armedStep.title),
         JSON.stringify(armedStep));
@@ -1400,8 +1404,8 @@ async function main() {
 
       const offlineMark = requestsSent.length;
       const offlineStep = JSON.parse(await run(`
-        const toast = document.querySelector('#operator-toast');
-        const priorToast = toast.textContent;
+        const feedback = document.querySelector('#operator-action-feedback');
+        const priorFeedback = feedback.textContent;
         const waitFor = async (test, ms = 10000) => {
           const deadline = Date.now() + ms;
           while (Date.now() < deadline) { if (test()) return true; await sleep(60); }
@@ -1411,17 +1415,18 @@ async function main() {
         action.focus();
         const heldFocus = document.activeElement === action;
         action.click();
-        const spoke = await waitFor(() => !toast.hidden && toast.textContent !== priorToast);
-        const message = toast.textContent;
+        const spoke = await waitFor(() => !feedback.hidden && feedback.textContent !== priorFeedback);
+        const message = feedback.textContent;
         const top = document.querySelector('#operator-log .audit-item');
         const title = top.querySelector('strong').textContent;
         const detail = top.querySelector('small').textContent;
         const status = await call('get_facility_status', {});
+        await sleep(180);
         return JSON.stringify({
           spoke,
           heldFocus,
           activeAfter: document.activeElement?.id ?? document.activeElement?.tagName ?? '',
-          toast: message,
+          feedback: message,
           title,
           detail,
           status,
@@ -1431,6 +1436,9 @@ async function main() {
           offlineDisabled: document.querySelector('#outage-now-button').disabled,
           restoreDisabled: document.querySelector('#restore-outage-button').disabled,
           armedHidden: document.querySelector('#armed-state').hidden,
+          selectedCardOut: document.querySelector('#' + ${JSON.stringify(lift.id)} + '-card').classList.contains('out'),
+          selectedCardBackground: getComputedStyle(document.querySelector('#' + ${JSON.stringify(lift.id)} + '-card')).backgroundColor,
+          selectedCardBorder: getComputedStyle(document.querySelector('#' + ${JSON.stringify(lift.id)} + '-card')).borderColor,
         });`));
       const offlineRequests = operatorMutations(requestsSent.slice(offlineMark));
       check(`${lift.label}: taking it offline issues exactly its own outage request`,
@@ -1440,12 +1448,55 @@ async function main() {
         offlineStep.status?.facilities?.find((facility) => facility.id === lift.id)?.status === 'OUT_OF_SERVICE'
           && offlineStep.status?.facilities?.find((facility) => facility.id === lift.otherId)?.status === 'OPERATIONAL',
         JSON.stringify(offlineStep.status));
-      check(`${lift.label}: the outage toast and the newest log entry name it and never ${lift.otherLabel}`,
+      check(`${lift.label}: the persistent outage result and newest log entry name it and never ${lift.otherLabel}`,
         offlineStep.spoke === true
-          && namesIt(offlineStep.toast) && !namesTheOther(offlineStep.toast)
+          && namesIt(offlineStep.feedback) && !namesTheOther(offlineStep.feedback)
           && namesIt(offlineStep.detail) && !namesTheOther(offlineStep.detail)
           && !namesTheOther(offlineStep.title),
         JSON.stringify(offlineStep));
+      check(`${lift.label}: a selected offline card stays visibly red, never green`,
+        offlineStep.selectedCardOut === true
+          && offlineStep.selectedCardBackground === 'rgb(75, 27, 32)'
+          && offlineStep.selectedCardBorder === 'rgb(255, 138, 127)',
+        JSON.stringify(offlineStep));
+      const visualMatrix = JSON.parse(await run(`
+        const choose = (id) => [...document.querySelectorAll('input[name="controlled-facility"]')]
+          .find((input) => input.value === id).click();
+        const snapshot = (id) => {
+          const card = document.querySelector('#' + id + '-card');
+          const style = getComputedStyle(card);
+          return {
+            background: style.backgroundColor,
+            border: style.borderColor,
+            selectedBadge: getComputedStyle(card.querySelector('.facility-selected')).display,
+            selectHint: getComputedStyle(card.querySelector('.facility-select-hint')).display,
+          };
+        };
+        const selectedOffline = snapshot(${JSON.stringify(lift.id)});
+        const unselectedOperational = snapshot(${JSON.stringify(lift.otherId)});
+        choose(${JSON.stringify(lift.otherId)});
+        await sleep(180);
+        const unselectedOffline = snapshot(${JSON.stringify(lift.id)});
+        const selectedOperational = snapshot(${JSON.stringify(lift.otherId)});
+        choose(${JSON.stringify(lift.id)});
+        await sleep(180);
+        return JSON.stringify({ selectedOffline, unselectedOperational, unselectedOffline, selectedOperational });
+      `));
+      check(`${lift.label}: all selected/unselected and operational/offline card states remain distinct`,
+        visualMatrix.selectedOffline.background === 'rgb(75, 27, 32)'
+          && visualMatrix.selectedOffline.border === 'rgb(255, 138, 127)'
+          && visualMatrix.selectedOffline.selectedBadge !== 'none'
+          && visualMatrix.selectedOffline.selectHint === 'none'
+          && visualMatrix.unselectedOffline.background === 'rgb(44, 28, 29)'
+          && visualMatrix.unselectedOffline.selectedBadge === 'none'
+          && visualMatrix.unselectedOffline.selectHint !== 'none'
+          && visualMatrix.selectedOperational.background === 'rgb(26, 51, 44)'
+          && visualMatrix.selectedOperational.selectedBadge !== 'none'
+          && visualMatrix.selectedOperational.selectHint === 'none'
+          && visualMatrix.unselectedOperational.background === 'rgb(22, 43, 37)'
+          && visualMatrix.unselectedOperational.selectedBadge === 'none'
+          && visualMatrix.unselectedOperational.selectHint !== 'none',
+        JSON.stringify(visualMatrix));
       check(`${lift.label}: while it is offline the controls still name it and the pending fault is gone`,
         [offlineStep.arm, offlineStep.offline, offlineStep.restore].every((text) => namesIt(text) && !namesTheOther(text))
           && offlineStep.offlineDisabled === true
@@ -1458,8 +1509,8 @@ async function main() {
 
       const restoreMark = requestsSent.length;
       const restoreStep = JSON.parse(await run(`
-        const toast = document.querySelector('#operator-toast');
-        const priorToast = toast.textContent;
+        const feedback = document.querySelector('#operator-action-feedback');
+        const priorFeedback = feedback.textContent;
         const waitFor = async (test, ms = 10000) => {
           const deadline = Date.now() + ms;
           while (Date.now() < deadline) { if (test()) return true; await sleep(60); }
@@ -1469,8 +1520,8 @@ async function main() {
         action.focus();
         const heldFocus = document.activeElement === action;
         action.click();
-        const spoke = await waitFor(() => !toast.hidden && toast.textContent !== priorToast);
-        const message = toast.textContent;
+        const spoke = await waitFor(() => !feedback.hidden && feedback.textContent !== priorFeedback);
+        const message = feedback.textContent;
         const top = document.querySelector('#operator-log .audit-item');
         const title = top.querySelector('strong').textContent;
         const detail = top.querySelector('small').textContent;
@@ -1479,7 +1530,7 @@ async function main() {
           spoke,
           heldFocus,
           activeAfter: document.activeElement?.id ?? document.activeElement?.tagName ?? '',
-          toast: message,
+          feedback: message,
           title,
           detail,
           status,
@@ -1492,9 +1543,9 @@ async function main() {
         (restoreStep.status?.facilities ?? []).length === 2
           && (restoreStep.status?.facilities ?? []).every((facility) => facility.status === 'OPERATIONAL'),
         JSON.stringify(restoreStep.status));
-      check(`${lift.label}: the restore toast and the newest log entry name it and never ${lift.otherLabel}`,
+      check(`${lift.label}: the persistent restore result and newest log entry name it and never ${lift.otherLabel}`,
         restoreStep.spoke === true
-          && namesIt(restoreStep.toast) && !namesTheOther(restoreStep.toast)
+          && namesIt(restoreStep.feedback) && !namesTheOther(restoreStep.feedback)
           && namesIt(restoreStep.detail) && !namesTheOther(restoreStep.detail)
           && !namesTheOther(restoreStep.title),
         JSON.stringify(restoreStep));
@@ -2053,6 +2104,45 @@ async function main() {
     check('the empty operator log meets WCAG AA normal-text contrast',
       operatorMobileLayout.contrast >= 4.5,
       JSON.stringify(operatorMobileLayout));
+    const mobileFacilityBeforeKeyboard = await evaluate(client, `
+      const east = document.querySelector('#facility-east');
+      const gardenCard = document.querySelector('#garden-lift-card');
+      east.focus();
+      const eastCard = east.nextElementSibling;
+      const targetScroll = eastCard.getBoundingClientRect().bottom + window.scrollY - window.innerHeight + 12;
+      window.scrollTo(0, Math.max(0, targetScroll));
+      const box = gardenCard.getBoundingClientRect();
+      return {
+        selected: document.querySelector('input[name="controlled-facility"]:checked')?.value,
+        gardenTop: box.top,
+        gardenBottom: box.bottom,
+        viewportHeight: window.innerHeight,
+      };
+    `);
+    await pressKey(client, 'ArrowDown');
+    await sleep(150);
+    const mobileFacilityKeyboard = await evaluate(client, `
+      const radio = document.querySelector('input[name="controlled-facility"]:checked');
+      const card = radio.nextElementSibling;
+      const box = card.getBoundingClientRect();
+      return {
+        selected: radio.value,
+        focused: document.activeElement === radio,
+        focusVisible: radio.matches(':focus-visible'),
+        cardTop: box.top,
+        cardBottom: box.bottom,
+        viewportHeight: window.innerHeight,
+      };
+    `);
+    check('keyboard selection scrolls the visible mobile lift card fully into view',
+      mobileFacilityBeforeKeyboard.selected === 'east-lift'
+        && mobileFacilityBeforeKeyboard.gardenTop >= mobileFacilityBeforeKeyboard.viewportHeight
+        && mobileFacilityKeyboard.selected === 'garden-lift'
+        && mobileFacilityKeyboard.focused === true
+        && mobileFacilityKeyboard.focusVisible === true
+        && mobileFacilityKeyboard.cardTop >= 0
+        && mobileFacilityKeyboard.cardBottom <= mobileFacilityKeyboard.viewportHeight,
+      JSON.stringify(mobileFacilityKeyboard));
     await client.send('Emulation.setDeviceMetricsOverride', {
       width: 320,
       height: 568,
@@ -2128,6 +2218,20 @@ async function main() {
       build.click();
       await sleep(2400);
       const afterBuild = await call('get_access_bundle_status', {});
+      const feedback = document.querySelector('#action-feedback');
+      const feedbackAtBuild = {
+        visible: !feedback.hidden,
+        text: feedback.textContent,
+        insidePlan: feedback.closest('#assurance-card')?.id === 'assurance-card',
+      };
+      // The former overlay disappeared after 4.2 seconds. Cross that boundary
+      // and two or more polling cycles before accepting the result as durable.
+      await sleep(4600);
+      const feedbackAfterFormerTimeout = {
+        visible: !feedback.hidden,
+        text: feedback.textContent,
+        insidePlan: feedback.closest('#assurance-card')?.id === 'assurance-card',
+      };
 
       const confirm = document.querySelector('#confirm-button');
       confirm.click();
@@ -2135,13 +2239,20 @@ async function main() {
       await sleep(2400);
       const afterConfirm = await call('get_access_bundle_status', {});
       const eventState = await call('get_event_access_state', {});
-      return JSON.stringify({ afterBuild, afterConfirm, eventState });
+      return JSON.stringify({ afterBuild, feedbackAtBuild, feedbackAfterFormerTimeout, afterConfirm, eventState });
     `);
     const repeated = JSON.parse(rapid);
     const rapidFailures = failedResponses.slice(failedBeforeRapidActions);
     check('a double build creates one staged plan',
       repeated.afterBuild.phase === 'AWAITING_HUMAN_CONFIRMATION' && Boolean(repeated.afterBuild.plan?.id),
       JSON.stringify(repeated.afterBuild));
+    check('the build result remains visible inside the plan after the former timeout and multiple polls',
+      repeated.feedbackAtBuild.visible === true
+        && repeated.feedbackAfterFormerTimeout.visible === true
+        && repeated.feedbackAfterFormerTimeout.insidePlan === true
+        && repeated.feedbackAfterFormerTimeout.text === repeated.feedbackAtBuild.text
+        && repeated.feedbackAfterFormerTimeout.text.includes('Nothing is booked yet'),
+      JSON.stringify({ atBuild: repeated.feedbackAtBuild, after: repeated.feedbackAfterFormerTimeout }));
     check('a double confirmation creates one booking',
       repeated.afterConfirm.phase === 'CONFIRMED'
         && Boolean(repeated.afterConfirm.booking?.reference)
@@ -3205,7 +3316,7 @@ async function main() {
         inViewport: feedbackRect.top < window.innerHeight && feedbackRect.bottom > 0,
         insidePlanCard: feedback.closest('#assurance-card')?.id === 'assurance-card',
         emptyPlanHidden: document.querySelector('#assurance-empty').hidden,
-        toastHidden: document.querySelector('#toast').hidden,
+        actionFeedbackHidden: document.querySelector('#action-feedback').hidden,
         venueNoticeHidden: document.querySelector('#venue-notice').hidden,
         buttonEnabled: !build.disabled,
         buttonLabel: build.textContent,
@@ -3268,7 +3379,7 @@ async function main() {
         && standing.during.inViewport === true
         && standing.during.insidePlanCard === true
         && standing.during.emptyPlanHidden === true
-        && standing.during.toastHidden === true
+        && standing.during.actionFeedbackHidden === true
         && standing.during.venueNoticeHidden === true
         && standing.during.feedbackText.includes('One or more lifts are out of service')
         && standing.during.feedbackText.includes('operations page')
@@ -3860,23 +3971,23 @@ async function main() {
     await waitForServerGone();
     await sleep(2_600);
     // How long a browser takes to give up on a dead socket is not fixed, and
-    // the toast clears itself after a few seconds, so this waits for the page
-    // to settle rather than sampling it once at an arbitrary moment.
+    // Wait for the failed action to settle rather than sampling it at an
+    // arbitrary moment; its contextual result must then remain visible.
     const confirmWhileDown = await evaluate(client, `
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       const button = document.querySelector('#confirm-button');
-      const toast = document.querySelector('#toast');
+      const feedback = document.querySelector('#action-feedback');
       const statusRegion = document.querySelector('#a11y-status');
       const priorStatus = statusRegion.textContent;
-      const priorToast = toast.textContent;
+      const priorFeedback = feedback.textContent;
       button.click();
 
       let announced = '';
-      let toastSeen = '';
+      let feedbackSeen = '';
       let settled = false;
       const deadline = Date.now() + 25000;
       while (Date.now() < deadline) {
-        if (!toast.hidden && toast.textContent && toast.textContent !== priorToast) toastSeen = toast.textContent;
+        if (!feedback.hidden && feedback.textContent && feedback.textContent !== priorFeedback) feedbackSeen = feedback.textContent;
         if (statusRegion.textContent !== priorStatus) announced = statusRegion.textContent;
         if (announced && !button.disabled && !button.textContent.includes('Confirming')) {
           settled = true;
@@ -3888,7 +3999,9 @@ async function main() {
         settled,
         priorStatus,
         announced,
-        toastSeen,
+        feedbackSeen,
+        feedbackVisible: !feedback.hidden,
+        feedbackInsidePlan: feedback.closest('#assurance-card')?.id === 'assurance-card',
         confirmDisabled: button.disabled,
         confirmLabel: button.textContent,
         receiptHidden: document.querySelector('#receipt-section').hidden,
@@ -3898,7 +4011,9 @@ async function main() {
     check('a confirmation that cannot reach the server says so',
       confirmWhileDown.announced.length > 0
         && confirmWhileDown.announced !== confirmWhileDown.priorStatus
-        && confirmWhileDown.toastSeen === confirmWhileDown.announced,
+        && confirmWhileDown.feedbackSeen === confirmWhileDown.announced
+        && confirmWhileDown.feedbackVisible === true
+        && confirmWhileDown.feedbackInsidePlan === true,
       JSON.stringify(confirmWhileDown));
     check('the confirm button does not stay stuck mid-transaction',
       confirmWhileDown.settled === true
@@ -3936,7 +4051,7 @@ async function main() {
         return JSON.stringify({
           live: document.querySelector('#operator-live-text').textContent,
           noticeHidden: document.querySelector('#operator-venue-notice').hidden,
-          toast: document.querySelector('#operator-toast').textContent,
+          feedback: document.querySelector('#operator-action-feedback').textContent,
           version: document.querySelector('#operator-version').textContent,
           facilities: document.querySelectorAll('.facility-card').length,
         });`);

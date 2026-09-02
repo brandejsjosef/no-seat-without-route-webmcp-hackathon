@@ -82,6 +82,7 @@
                 </span>
                 <span class="facility-badges">
                   <span class="facility-selected" aria-hidden="true">Selected</span>
+                  <span class="facility-select-hint" aria-hidden="true">Select to control</span>
                   <span class="facility-state" id="east-lift-state">CHECKING</span>
                   <span class="facility-fault" id="east-lift-fault" hidden>FAULT ARMED</span>
                 </span>
@@ -100,6 +101,7 @@
                 </span>
                 <span class="facility-badges">
                   <span class="facility-selected" aria-hidden="true">Selected</span>
+                  <span class="facility-select-hint" aria-hidden="true">Select to control</span>
                   <span class="facility-state" id="garden-lift-state">CHECKING</span>
                   <span class="facility-fault" id="garden-lift-fault" hidden>FAULT ARMED</span>
                 </span>
@@ -131,7 +133,8 @@
               <button class="button button-quiet" type="button" id="cancel-outage-button">Keep East Lift L2 in service</button>
             </div>
           </div>
-           <button class="button button-quiet button-wide" type="button" id="restore-outage-button" disabled>Restore East Lift L2</button>
+          <button class="button button-quiet button-wide" type="button" id="restore-outage-button" disabled>Restore East Lift L2</button>
+          <div class="action-feedback operator-action-feedback" id="operator-action-feedback" role="status" hidden></div>
         </aside>
       </section>
 
@@ -144,7 +147,6 @@
       </section>
     </main>
 
-    <div class="toast" id="operator-toast" hidden></div>
     <div class="sr-only" id="a11y-status" role="status"></div>
     <div class="sr-only" id="a11y-alert" role="alert"></div>
   </body>

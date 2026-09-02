@@ -167,8 +167,8 @@ describe('a disabled control says something true', () => {
 });
 
 describe('a refusal the visitor cannot act on stays on the page', () => {
-  test('an impossible bundle leaves a standing notice, not only a toast', async () => {
-    // showToast clears itself after 4200ms. Wheelchair width 95 is inside the
+  test('an impossible bundle leaves a standing notice, not only transient feedback', async () => {
+    // The former toast cleared itself after 4200ms. Wheelchair width 95 is inside the
     // form's own max and no route is 95cm wide, so the largest value the page
     // offers can never succeed - and four seconds later the page looked new,
     // with an empty decision log and a re-enabled build button.
@@ -231,7 +231,7 @@ describe('the page does not describe itself incorrectly', () => {
   });
 
   test('an invalid-input message does not speak schema keys to a person', async () => {
-    // showToast is also read out to screen readers, so "wheelchairWidthCm" was
+    // Action feedback is also read out to screen readers, so "wheelchairWidthCm" was
     // spoken aloud.
     const app = await read('public/app.js');
     const start = app.indexOf('Your agent supplied');

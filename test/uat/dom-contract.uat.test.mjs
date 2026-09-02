@@ -388,7 +388,7 @@ describe('every id a page script looks up is declared by the page it runs on', (
     assert.deepEqual(duplicateIds(INDEX_HTML), [], 'public/index.html declares an id more than once');
     assert.deepEqual(duplicateIds(OPERATOR_HTML), [], 'public/operator.html declares an id more than once');
     // A duplicate is invisible to querySelector, which takes the first match.
-    assert.deepEqual(duplicateIds(mutate(INDEX_HTML, ' id="toast"', ' id="incident"')), ['incident x2']);
+    assert.deepEqual(duplicateIds(mutate(INDEX_HTML, ' id="action-feedback"', ' id="incident"')), ['incident x2']);
   });
 });
 
@@ -541,7 +541,7 @@ describe('elements toggled through the hidden property', () => {
     // The detector has to keep working now that nothing in the real source
     // trips it. #companion-seat-map is a real <g> inside the map, today toggled
     // by class; switching it to a .hidden assignment must show up.
-    const alsoToggled = mutate(APP_JS, 'elements.toast.hidden = false;', 'elements.companionSeatMap.hidden = false;');
+    const alsoToggled = mutate(APP_JS, 'elements.actionFeedback.hidden = false;', 'elements.companionSeatMap.hidden = false;');
     assert.deepEqual(svgElementsToggledThroughHidden(alsoToggled, INDEX_HTML), {
       inSvg: ['companion-seat-map'],
       startsHidden: [],
@@ -559,7 +559,7 @@ describe('elements toggled through the hidden property', () => {
         'booking-impact',
         'manual-impact-confirmation',
         'manual-impact-note',
-        'operator-toast',
+        'operator-action-feedback',
         'operator-venue-notice',
       ],
       'public/operator.js hides an element the module-scope map does not resolve',
@@ -577,6 +577,7 @@ describe('elements toggled through the hidden property', () => {
     const ids = toggled.map((key) => leadingId(map.get(key) ?? ''));
     assert.deepEqual(ids.filter((id) => !id || !present.has(id)), [], 'a hidden toggle names an id the page never declares');
     assert.deepEqual(ids.filter((id) => !inSvg.has(id)).sort(), [
+      'action-feedback',
       'assurance-empty',
       'assurance-plan',
       'booking-impact-alert',
@@ -587,7 +588,6 @@ describe('elements toggled through the hidden property', () => {
       'receipt-section',
       'route-section',
       'start-over-button',
-      'toast',
       'venue-notice',
     ]);
   });

@@ -72,7 +72,7 @@ const elements = {
   examplePrompt: document.querySelector('#example-prompt'),
   toolList: document.querySelector('#tool-list'),
   resetButton: document.querySelector('#reset-button'),
-  toast: document.querySelector('#toast'),
+  actionFeedback: document.querySelector('#action-feedback'),
   a11yStatus: document.querySelector('#a11y-status'),
   a11yAlert: document.querySelector('#a11y-alert'),
   protocolChannel: document.querySelector('#protocol-channel'),
@@ -82,7 +82,7 @@ const elements = {
 
 let currentState = null;
 let lastPhase = null;
-let toastTimer = null;
+let actionFeedbackPhase = null;
 let registeredToolSignature = '';
 let toolControllers = [];
 let sessionToken = '';
@@ -229,14 +229,17 @@ const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 /** A behaviour passed in JavaScript overrides the reduced-motion CSS rule. */
 const scrollBehavior = () => (reduceMotion.matches ? 'auto' : 'smooth');
 
-function showToast(message) {
-  window.clearTimeout(toastTimer);
-  elements.toast.textContent = message;
-  elements.toast.hidden = false;
+function showActionFeedback(message) {
+  elements.actionFeedback.textContent = message;
+  elements.actionFeedback.hidden = false;
+  actionFeedbackPhase = currentState?.phase ?? null;
   announce(message);
-  toastTimer = window.setTimeout(() => {
-    elements.toast.hidden = true;
-  }, 4200);
+}
+
+function clearActionFeedback() {
+  actionFeedbackPhase = null;
+  elements.actionFeedback.hidden = true;
+  elements.actionFeedback.textContent = '';
 }
 
 async function api(path, options = {}) {
@@ -313,9 +316,9 @@ function rememberDemoId(id) {
  * new venue without ever having had an older one to lose.
  */
 /**
- * A refusal the visitor cannot act on must not disappear. showToast clears
- * itself after 4200ms, so typing a width the form permits but no route can
- * satisfy produced four seconds of text and then a page that looked brand new -
+ * A refusal the visitor cannot act on must not disappear. A transient notice
+ * used to clear itself, so typing a width the form permits but no route can
+ * satisfy produced a few seconds of text and then a page that looked brand new -
  * empty decision log, enabled build button, no trace that anything was refused.
  */
 /** The venue revision the standing refusal was raised against. */
@@ -413,15 +416,15 @@ async function toggleLiftFault() {
     await refreshState();
     if (view.mode === 'RESTORE') {
       setProtocolTrace('Venue operations role', 'restore_facility', `venue revision ${currentState.resourceVersion}`);
-      showToast('East Lift is back in service.');
+      showActionFeedback('East Lift is back in service.');
       elements.buildPlanButton.focus({ preventScroll: true });
       elements.buildPlanButton.scrollIntoView({ behavior: 'instant', block: 'center' });
     } else {
       setProtocolTrace('Venue operations role', 'arm lift fault', 'lands on the next confirmation');
-      showToast('Fault armed. Now press confirm and watch the server refuse the plan.');
+      showActionFeedback('Fault armed. Now press confirm and watch the server refuse the plan.');
     }
   } catch (error) {
-    showToast(error.message);
+    showActionFeedback(error.message);
   } finally {
     faultRequestInFlight = false;
     elements.faultButton.removeAttribute('aria-busy');
@@ -433,9 +436,9 @@ async function copyJoinLink() {
   url.searchParams.set('demo', demoId);
   try {
     await navigator.clipboard.writeText(url.toString());
-    showToast('Link copied. Opening it in another browser joins this same venue.');
+    showActionFeedback('Link copied. Opening it in another browser joins this same venue.');
   } catch {
-    showToast(url.toString());
+    showActionFeedback(url.toString());
   }
 }
 
@@ -757,6 +760,7 @@ function renderAudit(state) {
 function render(state) {
   const previousPhase = lastPhase;
   lastPhase = state.phase;
+  if (actionFeedbackPhase !== null && actionFeedbackPhase !== state.phase) clearActionFeedback();
   elements.venueVersion.textContent = `Venue revision ${state.resourceVersion}`;
   // A standing refusal describes the venue at one revision. The venue moving is
   // exactly the event that can make it untrue, and nothing re-checked it: after
@@ -831,6 +835,7 @@ function refreshState() {
 }
 
 async function buildPlanManually() {
+  clearActionFeedback();
   const hadFocus = disableSafely(elements.buildPlanButton, true, elements.main);
   elements.buildPlanButton.textContent = 'Checking the whole route…';
   try {
@@ -847,7 +852,7 @@ async function buildPlanManually() {
     setProtocolTrace('Manual visitor UI', 'find + stage', `plan ready · venue revision ${currentState.resourceVersion}`);
     elements.decisionHeading.focus({ preventScroll: true });
     elements.decisionSection.scrollIntoView({ behavior: 'instant', block: 'center' });
-    showToast('Complete route, seats and assistance prepared. Nothing is booked yet.');
+    showActionFeedback('Complete route, seats and assistance prepared. Nothing is booked yet.');
     return {
       submittedByVisitor: true,
       phase: currentState.phase,
@@ -873,7 +878,7 @@ async function buildPlanManually() {
         `no complete plan · venue revision ${currentState?.resourceVersion ?? 'unknown'}`,
       );
     } else {
-      showToast(error.message);
+      showActionFeedback(error.message);
     }
     // A refresh that fails for the same reason must not replace the visible
     // failure with an unhandled rejection, nor leave the button reading
@@ -891,6 +896,7 @@ async function buildPlanManually() {
 }
 
 async function replan() {
+  clearActionFeedback();
   if (!currentState?.activePlan) return;
   // The label and the action are one decision, taken in public/views.mjs. This
   // branched on the phase while the label came from the diagnosis, and the two
@@ -913,14 +919,14 @@ async function replan() {
     setProtocolTrace('Manual visitor UI', 'replan', `replacement ready · venue revision ${currentState.resourceVersion}`);
     elements.decisionHeading.focus({ preventScroll: true });
     elements.decisionSection.scrollIntoView({ behavior: 'instant', block: 'center' });
-    showToast(replanOutcomeView(currentState?.activePlan).toast);
+    showActionFeedback(replanOutcomeView(currentState?.activePlan).toast);
   } catch (error) {
     // Never let a failing refresh swallow the message explaining the failure.
     await refreshState().catch(() => {});
     if (error.code === 'NO_COMPLETE_BUNDLE') {
       setProtocolTrace('Manual visitor UI', 'replan', 'no complete alternative');
     }
-    showToast(error.message);
+    showActionFeedback(error.message);
   } finally {
     elements.replanButton.disabled = false;
     // Same source as the incident card above, so a control restored after a
@@ -931,6 +937,7 @@ async function replan() {
 }
 
 async function clearPlanForEditing() {
+  clearActionFeedback();
   const plan = currentState?.activePlan;
   if (!plan) return;
   // Two controls reach this now: the incident card's button when there is no
@@ -944,9 +951,9 @@ async function clearPlanForEditing() {
     setProtocolTrace('Manual visitor UI', 'clear plan', 'requirements editable');
     elements.requirementsForm.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
     elements.requirementsForm.querySelector('input:not([disabled])')?.focus({ preventScroll: true });
-    showToast('Change a requirement and build a new plan. Nothing was booked.');
+    showActionFeedback('Change a requirement and build a new plan. Nothing was booked.');
   } catch (error) {
-    showToast(error.message);
+    showActionFeedback(error.message);
   } finally {
     pressed.forEach((button, index) => {
       button.disabled = false;
@@ -956,6 +963,7 @@ async function clearPlanForEditing() {
 }
 
 async function confirmPlan() {
+  clearActionFeedback();
   const plan = currentState?.activePlan;
   if (!plan) return;
   const hadFocus = disableSafely(elements.confirmButton, true, elements.decisionHeading);
@@ -979,7 +987,7 @@ async function confirmPlan() {
     await refreshState();
     setProtocolTrace('Human confirmation', 'commit booking', `booking 0→1 · venue revision ${currentState.resourceVersion}`);
     elements.receiptSection.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
-    showToast('Every requested resource was confirmed in one transaction.');
+    showActionFeedback('Every requested resource was confirmed in one transaction.');
   } catch (error) {
     // Same reason as replan: if the refresh fails too, the visitor must still
     // be told why their confirmation did not go through - and the button must
@@ -991,7 +999,7 @@ async function confirmPlan() {
       // that is a third simultaneous utterance for one event.
       elements.incident.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
     } else {
-      showToast(error.message);
+      showActionFeedback(error.message);
     }
   } finally {
     elements.confirmButton.disabled = false;
@@ -1000,15 +1008,16 @@ async function confirmPlan() {
 }
 
 async function resetDemo() {
+  clearActionFeedback();
   try {
     await api('/api/demo/reset', { method: 'POST', body: '{}' });
     elements.requirementsForm.reset();
     await refreshState();
     setProtocolTrace('Demo control', 'reset', 'synthetic state restored');
     window.scrollTo({ top: 0, behavior: scrollBehavior() });
-    showToast('Synthetic demo reset.');
+    showActionFeedback('Synthetic demo reset.');
   } catch (error) {
-    showToast(error.message);
+    showActionFeedback(error.message);
   }
 }
 
@@ -1219,7 +1228,7 @@ elements.requirementsForm.addEventListener('submit', (event) => {
 // A form filled by an agent should say so, so the visitor knows to check it.
 elements.requirementsForm.addEventListener('input', (event) => {
   if (event.isTrusted) return;
-  showToast('Your agent filled this in. Check the values, then submit it yourself.');
+  showActionFeedback('Your agent filled this in. Check the values, then submit it yourself.');
 }, { passive: true });
 elements.replanButton.addEventListener('click', replan);
 elements.confirmButton.addEventListener('click', confirmPlan);
@@ -1230,9 +1239,9 @@ elements.shareLinkButton?.addEventListener('click', copyJoinLink);
 elements.copyPromptButton.addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(elements.examplePrompt.textContent.trim());
-    showToast('Example request copied.');
+    showActionFeedback('Example request copied.');
   } catch {
-    showToast('Select and copy the example request manually.');
+    showActionFeedback('Select and copy the example request manually.');
   }
 });
 
@@ -1280,10 +1289,10 @@ window.addEventListener('toolactivated', (event) => {
   queueMicrotask(() => {
     const form = elements.requirementsForm;
     if (form.checkValidity()) {
-      showToast('Your agent filled this in. Check the values, then submit it yourself.');
+      showActionFeedback('Your agent filled this in. Check the values, then submit it yourself.');
       return;
     }
-    // These names reach a human, and showToast also speaks them to a screen
+    // These names reach a human, and showActionFeedback also speaks them to a screen
     // reader, so the raw schema keys are translated. Collected before reset(),
     // which would otherwise make every field valid again.
     const FIELD_WORDS = {
@@ -1297,7 +1306,7 @@ window.addEventListener('toolactivated', (event) => {
       .filter(Boolean);
     form.requestSubmit(elements.buildPlanButton);
     form.reset();
-    showToast(`Your agent supplied an invalid ${invalidNames.join(' and ') || 'form'} value. Nothing was changed.`);
+    showActionFeedback(`Your agent supplied an invalid ${invalidNames.join(' and ') || 'form'} value. Nothing was changed.`);
   });
 });
 
@@ -1406,7 +1415,7 @@ async function initialize() {
     await refreshState();
     window.setInterval(pollState, 1_000);
   } catch (error) {
-    showToast(error.message);
+    showActionFeedback(error.message);
     elements.venueLiveStatus.classList.add('stale');
     elements.venueLiveText.textContent = 'Venue data unavailable';
   }
