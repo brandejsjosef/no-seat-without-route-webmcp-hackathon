@@ -175,6 +175,10 @@ function preferredDemoId() {
  * one the operator was watching, so the loss is stated and kept on screen.
  */
 function showVenueRebuiltNotice() {
+  // Feedback belongs to the venue that produced it. A restarted server may
+  // recreate a new venue at the same revision number, so revision comparison
+  // alone cannot tell us that the old message is stale.
+  clearActionFeedback();
   const message = 'The venue this page was watching no longer exists on the server, so a new, empty one was opened '
     + 'under the same identifier. Nothing shown below is a record of what came before.';
   elements.venueNotice.textContent = message;

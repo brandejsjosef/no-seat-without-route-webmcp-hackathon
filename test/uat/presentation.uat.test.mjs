@@ -147,8 +147,12 @@ describe('the operator page foregrounds state and uses operational language', ()
   });
 
   test('action results are persistent in-page content, never timed overlays', () => {
-    assert.match(INDEX, /id="action-feedback" role="status" hidden/);
-    assert.match(OPERATOR, /id="operator-action-feedback" role="status" hidden/);
+    assert.match(INDEX, /id="action-feedback" hidden/);
+    assert.match(OPERATOR, /id="operator-action-feedback" hidden/);
+    assert.doesNotMatch(INDEX, /id="action-feedback"[^>]*role="status"/);
+    assert.doesNotMatch(OPERATOR, /id="operator-action-feedback"[^>]*role="status"/);
+    assert.match(INDEX, /id="a11y-status" role="status"/);
+    assert.match(OPERATOR, /id="a11y-status" role="status"/);
     assert.match(STYLES, /\.action-feedback\s*\{[^}]*width:\s*100%;/s);
     assert.doesNotMatch(STYLES, /\.toast\s*\{|position:\s*fixed[^}]*action-feedback/s);
     assert.doesNotMatch(INDEX + OPERATOR, /class="toast"|id="(?:operator-)?toast"/);

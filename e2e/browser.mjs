@@ -1082,6 +1082,9 @@ async function main() {
       const feedback = document.querySelector('#action-feedback');
       const agentNotice = feedback.textContent;
       const agentNoticeVisible = !feedback.hidden;
+      const agentNoticeLiveTargets = [...document.querySelectorAll('[role="status"], [aria-live]')]
+        .filter((region) => region.textContent.trim() === agentNotice.trim())
+        .map((region) => region.id);
       const settledEarly = await Promise.race([pending.then(() => true), sleep(600).then(() => false)]);
 
       document.querySelector('#build-plan-button').click();
@@ -1094,6 +1097,7 @@ async function main() {
         filled,
         agentNotice,
         agentNoticeVisible,
+        agentNoticeLiveTargets,
         settledEarly,
         result,
         offeredAfterPlanning: (await names()).includes('set_access_requirements'),
@@ -1103,8 +1107,11 @@ async function main() {
     check('an agent can fill the visible form', dec.before !== dec.filled && dec.filled === '68', `${dec.before} -> ${dec.filled}`);
     check('a valid declarative fill tells the visitor what to do',
       dec.agentNoticeVisible === true
-        && dec.agentNotice.includes('Check the values') && dec.agentNotice.includes('submit it yourself'),
-      dec.agentNotice);
+        && dec.agentNotice.includes('Check the values')
+        && dec.agentNotice.includes('submit it yourself')
+        && dec.agentNoticeLiveTargets.length === 1
+        && dec.agentNoticeLiveTargets[0] === 'a11y-status',
+      JSON.stringify({ notice: dec.agentNotice, liveTargets: dec.agentNoticeLiveTargets }));
     check('the call does not settle until a person submits', dec.settledEarly === false, 'it resolved without anyone pressing the button');
     check('submitting hands the result back to the agent', dec.result?.submittedByVisitor === true && Boolean(dec.result?.planId), JSON.stringify(dec.result));
     check('the form tool is withdrawn once a plan exists', dec.offeredAfterPlanning === false, 'it stayed registered after the page left READY');
@@ -2331,6 +2338,8 @@ async function main() {
         focusedTheField,
         focusRing,
         regionsExist: Boolean(document.querySelector('#a11y-status') && document.querySelector('#a11y-alert')),
+        statusRole: document.querySelector('#a11y-status').getAttribute('role'),
+        actionFeedbackRole: document.querySelector('#action-feedback').getAttribute('role'),
         incidentHasAlertRole: document.querySelector('#incident').getAttribute('role'),
         announcedOnAgentAction: announced !== before && announced.length > 0,
         announcedText: announced,
@@ -2341,6 +2350,9 @@ async function main() {
       });`);
     const acc = JSON.parse(a11y);
     check('both live regions are permanently rendered', acc.regionsExist === true, a11y);
+    check('visible action feedback does not duplicate the status announcement',
+      acc.statusRole === 'status' && acc.actionFeedbackRole === null,
+      `status=${acc.statusRole}, feedback=${acc.actionFeedbackRole}`);
     check('the incident region is not re-announced by the poll', acc.incidentHasAlertRole === null, `role=${acc.incidentHasAlertRole}`);
     check('a plan staged by an agent is announced', acc.announcedOnAgentAction === true, acc.announcedText);
     check('unchanged text is not rewritten on every poll', acc.nodeSurvivedTwoPolls === true, 'the text node was replaced while nothing changed');
@@ -4048,16 +4060,27 @@ async function main() {
       await sleep(2_500);
 
       const beforeRestart = await run(`
+        const arm = document.querySelector('#arm-outage-button');
+        const feedback = document.querySelector('#operator-action-feedback');
+        arm.click();
+        const feedbackDeadline = Date.now() + 10000;
+        while (Date.now() < feedbackDeadline && (feedback.hidden || !feedback.textContent)) await sleep(60);
         return JSON.stringify({
           live: document.querySelector('#operator-live-text').textContent,
           noticeHidden: document.querySelector('#operator-venue-notice').hidden,
-          feedback: document.querySelector('#operator-action-feedback').textContent,
+          feedbackHidden: feedback.hidden,
+          feedback: feedback.textContent,
           version: document.querySelector('#operator-version').textContent,
           facilities: document.querySelectorAll('.facility-card').length,
         });`);
       const opBefore = JSON.parse(beforeRestart);
       check('the operations page reports live venue data while the server is up',
         opBefore.live.startsWith('Venue data live') && opBefore.noticeHidden === true,
+        beforeRestart);
+      check('the restart case begins with persistent feedback from venue revision 1',
+        opBefore.feedbackHidden === false
+          && opBefore.feedback.includes('fault will land')
+          && opBefore.version === '1',
         beforeRestart);
 
       server.kill();
@@ -4088,6 +4111,9 @@ async function main() {
           announced: document.querySelector('#a11y-status').textContent,
           live: document.querySelector('#operator-live-text').textContent,
           demoId: new URL(location.href).searchParams.get('demo'),
+          feedbackHidden: document.querySelector('#operator-action-feedback').hidden,
+          feedback: document.querySelector('#operator-action-feedback').textContent,
+          version: document.querySelector('#operator-version').textContent,
         });`);
       const opRebuilt = JSON.parse(opAfter);
       check('the operations page recovers its own session without a reload',
@@ -4101,6 +4127,11 @@ async function main() {
       check('the loss is announced, not only drawn',
         opRebuilt.announced.includes('no longer exists'),
         opAfter);
+      check('a replacement venue at the same revision clears feedback from the venue that was lost',
+        opRebuilt.version === opBefore.version
+          && opRebuilt.feedbackHidden === true
+          && opRebuilt.feedback === '',
+        `${beforeRestart} -> ${opAfter}`);
     }
 
     scenario('the page logged no errors while all of that happened');
