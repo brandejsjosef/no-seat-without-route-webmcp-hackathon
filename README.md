@@ -55,9 +55,10 @@ works fully on its own; WebMCP is added on top, not in place of it.
 **The work is combinatorial; the decision is not.** Choosing between routes means
 crossing entrances against lift status, doorway widths, travel distance, companion
 seat adjacency and host availability, and redoing that whenever the venue changes.
-That is work an agent can help with. The prototype leaves route trade-offs — a
-longer route, no companion seat, a busier foyer — to the visitor and keeps the map
-visible while the agent compares and stages options.
+That is work an agent can help with. The visitor states six concrete requirements;
+the service selects the fastest route that satisfies all six, while the agent can
+compare the two routes and stage the result. The route and its named dependencies
+stay visible for review before confirmation.
 
 **WebMCP keeps the agent inside the decision surface.** A backend MCP server could
 automate the same route search, but it would not inherently share the state of the
@@ -108,8 +109,8 @@ route rule to report and correctly returns an empty list.
 
 Both APIs are used.
 
-**Imperative API** — twelve tools across two role-scoped surfaces, registered and
-unregistered as the page state changes:
+**Imperative API** — nine visitor tools registered dynamically by phase, plus
+three operator tools that stay registered on their separate surface:
 
 ```js
 await document.modelContext.registerTool({
@@ -256,12 +257,12 @@ interpretation of Chrome's approximate 1.5K guidance.
 > after a restart tells you the venue is gone rather than showing an empty one
 > as real.
 
-No app account is required. ChatGPT desktop's in-app browser needs no WebMCP setup;
-Chrome testing requires enabling `chrome://flags/#enable-webmcp-testing` and
-relaunching.
+No app account is required.
 
-**With an agent** (ChatGPT desktop in-app browser, or Chrome 149+ with
-`chrome://flags/#enable-webmcp-testing` enabled):
+**With an agent:** open the live URL in ChatGPT desktop's in-app browser. For
+deterministic protocol testing from a checkout, Chrome 149+ can expose WebMCP after
+enabling `chrome://flags/#enable-webmcp-testing`; the flag by itself does not
+provide an agent UI.
 
 1. Open the live URL. Chrome 152 with declarative WebMCP support shows
    **5 read, 2 write**, because it also exposes the visible form. On a host
